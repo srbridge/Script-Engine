@@ -4,9 +4,167 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:ScriptView"
+        xmlns:data ="clr-namespace:System.Data;assembly=System.Data"
         mc:Ignorable="d"
-        Title="MainWindow" Height="350" Width="525">
-    <Grid>
-        
-    </Grid>
+        Title="Data Set Viewer" Height="500" Width="800"
+        Cursor="{Binding Cursor}" Icon="SQLServer_5728.ico"
+        >
+    <Window.DataContext>
+        <local:DataSetViewModel/>
+    </Window.DataContext>
+    <DockPanel>
+        <Menu Padding="5" DockPanel.Dock="Top">
+            <MenuItem Header="File">
+                <MenuItem Header="Load Data-Set XML" Command="{Binding LoadFromXML}"></MenuItem>
+                <MenuItem Header="Save Data-Set XML" Command="{Binding SaveAsXML}"></MenuItem>
+            </MenuItem>
+            <MenuItem Header="View">
+                <MenuItem Header="Toggle SQL Server Query" Click="MenuItem_Click" StaysOpenOnClick="True"/>
+                <TextBox MinWidth="100" Text="{Binding CommandText}"/>
+                <MenuItem Header="Test">
+                    <TextBox Background="Red" HorizontalAlignment="Stretch"/>
+                </MenuItem>
+            </MenuItem>
+        </Menu>
+
+        <Button ToolTip="Show or Hide Query Panel" DockPanel.Dock="Left" BorderBrush="LightGray" Click="Button_Click">X</Button>
+
+        <Border BorderBrush="LightGray" BorderThickness="5">
+            <Grid >
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="LeftPanelColumn" Width="180"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- left panel section (selected connection tables and columns) -->
+                <Border BorderBrush="LightCyan" BorderThickness="5" Margin="0,0,5,0" Grid.Column="0" Grid.RowSpan="2">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="30"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Button  Margin="5" Command="{Binding CreateSelectStatement}" Content="Create Select"/>
+                        <TreeView BorderThickness="0" Grid.Row="1" ItemsSource="{Binding Servers.Nodes}"  Cursor="{Binding Cursor}">
+
+                            <TreeView.ItemTemplate>
+                                <HierarchicalDataTemplate ItemsSource="{Binding Nodes}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Image Source="{Binding Icon}"/>
+                                        <TextBlock Text="{Binding Name}" Cursor="{Binding Cursor}" ToolTip="{Binding ToolTip}"/>
+                                    </StackPanel>
+                                </HierarchicalDataTemplate>
+                            </TreeView.ItemTemplate>
+
+                            <TreeView.ItemContainerStyle>
+                                <Style TargetType="TreeViewItem">
+                                    <Setter Property="IsSelected" Value="{Binding IsSelected}" />
+                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded}" />
+                                </Style>
+                            </TreeView.ItemContainerStyle>
+                        </TreeView>
+
+                    </Grid>
+                </Border>
+
+                <!-- right panel (query, script and data-set rows) -->
+                <Border Grid.Column ="1" BorderBrush="LightGray" BorderThickness="0" Grid.RowSpan="2">
+                    <Grid x:Name="GridMain">
+                        <Grid.RowDefinitions>
+                            <RowDefinition x:Name="RowQueryDatabase" Height="70"/>
+                            <RowDefinition Height="5"/>
+                            <RowDefinition Height="40"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- query sql database section -->
+                        <Border BorderBrush="LightCyan" BorderThickness="5" Grid.Row="0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="25" />
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="80"/>
+                                    <ColumnDefinition/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <!-- selected connection/table -->
+                                <StackPanel Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <TextBlock Foreground="Green" Text="{Binding SelectedSqlServer.Description}"/>
+                                    <TextBlock>.</TextBlock>
+                                    <TextBlock Foreground="Blue" Text="{Binding SelectedConnection.DBName}"/>
+                                    <TextBlock Text="{Binding SelectedConnectionTable.Description}"/>
+                                   
+                                </StackPanel>
+                                
+                                <Button   Margin="5" Grid.Row="1" Grid.Column="0" MaxHeight="30" Command="{Binding ExecuteSelect}" BorderBrush="DarkRed">Execute</Button>
+                                <TextBox  Margin="5" Grid.Row="1" Grid.Column="1" Padding="5" Text="{Binding CommandText}" HorizontalContentAlignment="Left" VerticalContentAlignment="Top" FontFamily="Consolas" FontSize="12"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- generate script section -->
+                        <Border BorderBrush="LightGray" BorderThickness="0,5,0,0" Grid.Row="2">
+                            <Grid >
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="95"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition/>
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0" Margin="5,0,0,0" VerticalContentAlignment="Center" HorizontalAlignment="Center" Content="To Clipboard" IsChecked="{Binding ScriptToClipboard}"></CheckBox>
+                                <ComboBox Grid.Column="1" Margin="5,5"     VerticalContentAlignment="Center" HorizontalContentAlignment="Center" ItemsSource="{Binding ScriptTypes}" SelectedItem="{Binding SelectedScriptType}"/>
+                                <Button   Grid.Column="2" Margin="5,2" Padding="5,5"  BorderThickness="1" BorderBrush="Green"   Command="{Binding GenerateScript}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Image Source="Images/script_32xLG.png" />
+                                        <TextBlock Margin="5,0" VerticalAlignment="Center" Text="{Binding GenerateScriptButtonText}"/>
+                                    </StackPanel>
+                                    
+                                </Button>
+                            </Grid>
+                        </Border>
+
+                        <!-- data set view section -->
+                        <Border BorderBrush="LightGray" BorderThickness="0,5,0,0" Grid.Row="3">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="25"/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4*"/>
+                                    <ColumnDefinition Width="10*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center" Text="Data Set Tables"/>
+                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Grid.Column="1" Orientation="Horizontal">
+                                    <TextBlock Text="Selected Table: "/>
+                                    <TextBlock Text="{Binding SelectedTable.TableName}"></TextBlock>
+                                </StackPanel>
+                                <ListBox Grid.Row="1" BorderThickness="0" Margin="5,5,10,5" Grid.Column="0" ItemsSource="{Binding Tables}" SelectedItem="{Binding SelectedTable}">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type local:DataTableMount}">
+                                            <StackPanel>
+                                                <TextBox Text="{Binding TableName}"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                    <ListBox.ContextMenu>
+                                        <ContextMenu ItemsSource="{Binding SelectedTableContextActions}"/>
+                                    </ListBox.ContextMenu>
+                                </ListBox>
+                                <DataGrid Grid.Row="1" BorderThickness="0" Margin="5" Grid.Column="1" ItemsSource="{Binding SelectedTable}"/>
+                                <GridSplitter Grid.Column="0" Grid.RowSpan="2" Width="5" Background="LightGray"/>
+
+                            </Grid>
+                        </Border>
+
+                        <!-- query/script splitter -->
+                        <GridSplitter Grid.Row="1" Height="5" Background="LightBlue" HorizontalAlignment="Stretch"/>
+                    </Grid>
+                </Border>
+
+                <GridSplitter x:Name="LeftPanelSplitter" Grid.Column="0" Width="5" Background="LightGray" Grid.RowSpan="2"/>
+            </Grid>
+        </Border>
+
+    </DockPanel>
 </Window>
