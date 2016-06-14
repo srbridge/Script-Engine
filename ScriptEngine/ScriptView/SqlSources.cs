@@ -9,8 +9,6 @@ using System.Threading.Tasks;
 
 namespace ScriptView
 {
-	
-
 	/// <summary>
 	/// information about an SQL server instance.
 	/// </summary>
@@ -118,14 +116,11 @@ namespace ScriptView
 		/// </summary>
 		public string Version { get; set; }
 
-		List<SqlDbInfo> _databases = null;
-
 		/// <summary>
 		/// a list of databases on that server.
 		/// </summary>
 		public List<SqlDbInfo> Databases { get; } = new List<SqlDbInfo>();
 		
-
 		/// <summary>
 		/// pulls out a list of databases on the server.
 		/// </summary>
@@ -152,7 +147,7 @@ namespace ScriptView
 		}
 
 		/// <summary>
-		/// pulls out a list of databases on the server.
+		/// pulls out a list of databases on the server as an enumerable;
 		/// </summary>
 		public IEnumerable<SqlDbInfo> EnumerateChildren()
 		{
@@ -161,6 +156,8 @@ namespace ScriptView
 			{
 				// open and query for databases:
 				conn.Open();
+
+				// get the list of databases:
 				var tbl = conn.GetSchema("Databases");
 
 				// enumerate the databases and create a DBInfo for each row:
@@ -172,8 +169,14 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// property returning the results of <see cref="EnumerateChildren"/>
+		/// </summary>
 		public IEnumerable<SqlDbInfo> Children {  get { return EnumerateChildren(); } }
 
+		/// <summary>
+		/// description of the server including instance name and version (if specified)
+		/// </summary>
 		public string Description
 		{
 			get {
@@ -236,6 +239,7 @@ namespace ScriptView
 			this.ServerName = server;
 			this.InstanceName = instance;
 			this.DBName = db;
+
 			if (fetchDetails)
 				this.DetailsTask = Task.Run(() => GetDetails());
 			else

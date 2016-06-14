@@ -10,10 +10,33 @@ using System.IO;
 
 namespace DataScriptEngine
 {
-
-	public enum ScriptType
+	/// <summary>
+	/// script types supported by the engine
+	/// </summary>
+	public enum DbScriptType
 	{
-		Insert, Update, Delete, InsertUpdate, DeleteInsert
+		/// <summary>
+		/// creates a set of insert statements to insert all the records into the target table.
+		/// if the record already exists a key violation will occur
+		/// </summary>
+		Insert,
+		/// <summary>
+		/// creates a set of update statements to update all the records in the target table. 
+		/// if the record doesn't exist, no changes will be made
+		/// </summary>
+		Update,
+		/// <summary>
+		/// creates a set of delete statements to remove the records from the target table.
+		/// </summary>
+		Delete,
+		/// <summary>
+		/// creates a script that for each record, executes an IF (EXISTS()) statement then inserts or updates where appropriate.
+		/// </summary>
+		InsertUpdate,
+		/// <summary>
+		/// creates a set of delete statements followed by insert statements. effectively updates all records.
+		/// </summary>
+		DeleteInsert
 	}
 
 	/// <summary>
@@ -21,27 +44,59 @@ namespace DataScriptEngine
 	/// </summary>
 	public class DbScriptTable
 	{
+		#region Properties
+
+		/// <summary>
+		/// the name of the table
+		/// </summary>
 		public string TableName { get; set; }
+
+		/// <summary>
+		/// where clause to use to restrict recods on fill.
+		/// </summary>
 		public string WhereClause { get; set; }
+
+		/// <summary>
+		/// comment text to be added to the top of the script output for this table
+		/// </summary>
 		public string Comment { get; set; }
 
-		public List<DbScriptRow> Rows { get; set; } = new List<DbScriptRow>();
+		/// <summary>
+		/// the rows loaded in to script
+		/// </summary>
+		public List<DbScriptRow> Rows { get;  } = new List<DbScriptRow>();
+
+		/// <summary>
+		/// schema info for each column
+		/// </summary>
 		public DbScriptColumnSchema[] SchemaInfo { get; set; } = null;
 
+		#endregion
+
+		#region Constructors
+
+		/// <summary>
+		/// construct with table-name and no where-clause
+		/// </summary>
+		/// <param name="tableName"></param>
 		public DbScriptTable(string tableName)
 		{
 			this.TableName = tableName;
 		}
 
+		/// <summary>
+		/// construct with a table name and where clause
+		/// </summary>
+		/// <param name="tableName"></param>
+		/// <param name="where"></param>
 		public DbScriptTable(string tableName, string where)
 		{
 			this.TableName   = tableName;
 			this.WhereClause = where;
 		}
 
-
-
-
+		#endregion
+	
 		/// <summary>
 		/// using the rows currently filled in the table, generate an Insert, Update, Delete, DeleteInsert, InsertUpdate script.
 		/// </summary>
@@ -49,7 +104,7 @@ namespace DataScriptEngine
 		/// <param name="type"></param>
 		/// <param name="useTransaction"></param>
 		/// <param name="printStatusGap"></param>
-		public void GenerateScript(Stream target, ScriptType type, bool useTransaction, int printStatusGap)
+		public void GenerateScript(Stream target, DbScriptType type, bool useTransaction, int printStatusGap)
 		{
 			using (var writer = new StreamWriter(target))
 			{
@@ -78,22 +133,22 @@ namespace DataScriptEngine
 					switch (type)
 					{
 
-						case ScriptType.Insert:
+						case DbScriptType.Insert:
 							writer.WriteLine(row.InsertStatement);
 							break;
-						case ScriptType.Update:
+						case DbScriptType.Update:
 							writer.WriteLine(row.UpdateStatement);
 							break;
-						case ScriptType.Delete:
+						case DbScriptType.Delete:
 							writer.WriteLine(row.DeleteStatement);
 							break;
-						case ScriptType.InsertUpdate:
+						case DbScriptType.InsertUpdate:
 							writer.WriteLine($"IF EXISTS(select * from {TableName} where {row.WhereClause})");
 							writer.WriteLine($"{row.UpdateStatement}");
 							writer.WriteLine($"ELSE");
 							writer.WriteLine($"{row.InsertStatement}");
 							break;
-						case ScriptType.DeleteInsert:
+						case DbScriptType.DeleteInsert:
 							writer.WriteLine(row.DeleteStatement);
 							writer.WriteLine(row.InsertStatement);
 							break;
@@ -120,8 +175,7 @@ namespace DataScriptEngine
 			}
 		}
 
-
-
+		#region Fill - Methods to fill the scripting table holder
 
 		/// <summary>
 		/// populate from a data-set instead of a connection.
@@ -211,6 +265,12 @@ namespace DataScriptEngine
 			}
 		}
 
+		#endregion
+
+		/// <summary>
+		/// string representation
+		/// </summary>
+		/// <returns></returns>
 		public override string ToString()
 		{
 			if (SchemaInfo == null)
@@ -225,8 +285,15 @@ namespace DataScriptEngine
 
 	}
 
+	/// <summary>
+	/// represents a single row in a table to be scripted
+	/// </summary>
 	public class DbScriptRow
 	{
+		/// <summary>
+		/// construct the row and pass in the parent table reference
+		/// </summary>
+		/// <param name="tbl"></param>
 		public DbScriptRow(DbScriptTable tbl)
 		{
 			this.Table = tbl;
@@ -262,6 +329,7 @@ namespace DataScriptEngine
 				var sb = new StringBuilder();
 				foreach (var value in Columns)
 				{
+					// check it has a value, is not an identity field and is not read-only
 					if (value.Value != null && !value.IsIdentity && !value.ColumnInfo.IsReadOnly)
 					{
 						if (sb.Length > 0)
@@ -282,7 +350,8 @@ namespace DataScriptEngine
 			{
 				var sb = new StringBuilder();
 				foreach (var value in Columns)
-				{
+				{        
+					// check it has a value, is not an identity field and is not read-only
 					if (value.Value != null && !value.IsIdentity && !value.ColumnInfo.IsReadOnly)
 					{
 						if (sb.Length > 0)
@@ -295,7 +364,7 @@ namespace DataScriptEngine
 		}
 
 		/// <summary>
-		/// 
+		/// produces a set list of values from the current row
 		/// </summary>
 		public string SetValues
 		{
@@ -312,6 +381,9 @@ namespace DataScriptEngine
 			}
 		}
 
+		/// <summary>
+		/// returns a where-clause that uniquely identifies the current row. there must be a UNIQUEID, IDENTITY or PRIMARY-KEY column.
+		/// </summary>
 		public string WhereClause
 		{
 			get
@@ -327,6 +399,9 @@ namespace DataScriptEngine
 			}
 		}
 
+		/// <summary>
+		/// returns a where-clause built using the Primary-Key Columns
+		/// </summary>
 		public string WhereClause__KEY
 		{
 			get
@@ -341,6 +416,10 @@ namespace DataScriptEngine
 				return sb.ToString();
 			}
 		}
+
+		/// <summary>
+		/// returns a where-clause built using any IDENTITY columns (columns where ColumnInfo.IsIdentity = true)
+		/// </summary>
 		public string WhereClause__IDENTITY
 		{
 			get
@@ -355,6 +434,10 @@ namespace DataScriptEngine
 				return sb.ToString();
 			}
 		}
+
+		/// <summary>
+		/// returnd a where-clause built using any IsUnique columns
+		/// </summary>
 		public string WhereClause__UNIQUEID
 		{
 			get
@@ -370,6 +453,9 @@ namespace DataScriptEngine
 			}
 		}
 
+		/// <summary>
+		/// returns an insert statement for the current row.
+		/// </summary>
 		public string InsertStatement
 		{
 			get
@@ -378,6 +464,9 @@ namespace DataScriptEngine
 			}
 		}
 
+		/// <summary>
+		/// returns an update statement for the current row.
+		/// </summary>
 		public string UpdateStatement
 		{
 			get
@@ -386,6 +475,9 @@ namespace DataScriptEngine
 			}
 		}
 
+		/// <summary>
+		/// returns a delete statement for the current row.
+		/// </summary>
 		public string DeleteStatement
 		{
 			get
@@ -393,8 +485,6 @@ namespace DataScriptEngine
 				return $"DELETE FROM [{Table.TableName}]\r\n WHERE {WhereClause}";
 			}
 		}
-
-
 	}
 
 	/// <summary>
@@ -402,6 +492,10 @@ namespace DataScriptEngine
 	/// </summary>
 	public class DbScriptColumn
 	{
+		/// <summary>
+		/// construct with parent reference
+		/// </summary>
+		/// <param name="owner"></param>
 		public DbScriptColumn(DbScriptRow owner)
 		{
 			this.Row   = owner;
@@ -449,27 +543,33 @@ namespace DataScriptEngine
 		public bool IsIdentity { get { return ColumnInfo.IsIdentity; } }
 
 		/// <summary>
-		/// gets the delimited text value for this column formatted for a script value.
+		/// gets the delimited text value for this column formatted for output on an SQL script.
 		/// </summary>
 		public string ScriptValue
 		{
 			get
 			{
-				if (Value == DBNull.Value)
+				// return "null" for a DBNull
+				if (Value == DBNull.Value || Value == null)
 					return "null";
 
+				// varchar etc, delimited text using single quotes:
 				if (DbType.IsStringType())
 				{
 					return $"'{Value}'";
 				}
+
+				// format a date-time for sql server insert (0000-01-01 00:00:00)
 				if (ClrType.Equals(typeof(DateTime)))
 				{
+					// cast to a date-time:
 					DateTime dt = (DateTime)Value;
 
+					// format to an sql server date string:
 					return $"'{dt.ToString("yyyy-MM-dd hh:mm:ss")}'";
-
-
 				}
+
+				// a boolean is returned as 0 or 1
 				if (ClrType.Equals(typeof(bool)))
 				{
 					if ((bool)Value)
@@ -482,6 +582,7 @@ namespace DataScriptEngine
 					}
 				}
 
+				// everything else: just the string representation right now
 				return Value.ToString();
 
 			}
@@ -497,6 +598,9 @@ namespace DataScriptEngine
 		}
 	}
 
+	/// <summary>
+	/// extension methods
+	/// </summary>
 	public static class Extensions
 	{
 		/// <summary>
@@ -764,7 +868,6 @@ namespace DataScriptEngine
 		}
 
 	}
-
 
 	/// <summary>
 	/// represents schema information about a single column in a table.

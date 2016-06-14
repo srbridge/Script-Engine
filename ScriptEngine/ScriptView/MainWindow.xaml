@@ -148,9 +148,10 @@
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                     <ListBox.ContextMenu>
-                                        <ContextMenu ItemsSource="{Binding SelectedTableContextActions}"/>
+                                        <ContextMenu  ItemsSource="{Binding SelectedTableContextActions}"/>
                                     </ListBox.ContextMenu>
                                 </ListBox>
+                                
                                 <DataGrid Grid.Row="1" BorderThickness="0" Margin="5" Grid.Column="1" ItemsSource="{Binding SelectedTable}"/>
                                 <GridSplitter Grid.Column="0" Grid.RowSpan="2" Width="5" Background="LightGray"/>
 

@@ -16,27 +16,38 @@ using System.Windows.Media;
 
 namespace ScriptView
 {
+	/// <summary>
+	/// script target enumeration
+	/// </summary>
 	public enum ScriptTo
 	{
 		File, Clipboard
 	}
 
+	/// <summary>
+	/// view model for a data-set and query view
+	/// </summary>
 	class DataSetViewModel : SimpleViewModel
 	{
 		public	DataSetViewModel() 
 			: base()
 		{
+			// create a new data-set;
 			this.Model   = new DataSet();
-			this.Servers = new SqlEnvironmentModel(this);
 
-			this.UseTransaction = true;
-			this.PrintStatusCount = 50;
-			this.SelectedScriptType = ScriptType.InsertUpdate;
-			this.ScriptToClipboard = false;
-			this.DatabaseCount = "None";
+			// start querying for sql servers:
+			this.Servers = new SqlEnvironmentViewModel(this);
+
+			// set initial options:
+			this.UseTransaction     = true;
+			this.PrintStatusCount   = 50;
+			this.SelectedScriptType = DbScriptType.InsertUpdate;
+			this.ScriptToClipboard  = false;
+			this.DatabaseCount      = "None";
 			
 			if (InDesignMode)
 			{
+				// add example data for design mode:
 				var t = new DataTable("ExampleTable");
 				t.Columns.Add("Name",  typeof(string));
 				t.Columns.Add("Value", typeof(string));
@@ -52,13 +63,18 @@ namespace ScriptView
 
 		}
 
-
-		public SqlEnvironmentModel Servers
+		/// <summary>
+		/// view-model for the servers tree-view
+		/// </summary>
+		public SqlEnvironmentViewModel Servers
 		{
-			get { return this[nameof(Servers)] as SqlEnvironmentModel; }
+			get { return this[nameof(Servers)] as SqlEnvironmentViewModel; }
 			set { this[nameof(Servers)] = value; }
 		}
 
+		/// <summary>
+		/// the sql server selected in the tree-view
+		/// </summary>
 		public SqlServerInfo SelectedSqlServer
 		{
 			get { return this[nameof(SelectedSqlServer)] as SqlServerInfo; }
@@ -67,8 +83,6 @@ namespace ScriptView
 				this[nameof(SelectedSqlServer)] = value;
 			}
 		}
-
-
 
 		/// <summary>
 		/// command to execute the select statement and return the result to the data-set;
@@ -84,6 +98,9 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// command to save the data-set to xml
+		/// </summary>
 		public ICommand SaveAsXML
 		{
 			get
@@ -92,6 +109,9 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// command to load data set from xml
+		/// </summary>
 		public ICommand LoadFromXML
 		{
 			get
@@ -101,6 +121,9 @@ namespace ScriptView
 
 		}
 
+		/// <summary>
+		/// command to generate the script with the currently selected options
+		/// </summary>
 		public ICommand GenerateScript
 		{
 			get
@@ -109,12 +132,18 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// command to create the select statement to query the currently selected table
+		/// </summary>
 		public ICommand CreateSelectStatement
 		{
 			get { return new RelayCommand(()=>SelectedConnectionTable != null, ExecuteCreateSelect); }
 		}
 
 
+		/// <summary>
+		/// should the script use a transaction?
+		/// </summary>
 		public bool UseTransaction
 		{
 			get { return (bool)this[nameof(UseTransaction)]; }
@@ -125,24 +154,28 @@ namespace ScriptView
 
 		}
 
-
+		/// <summary>
+		/// how often should the script add a progress print statement
+		/// </summary>
 		public int PrintStatusCount
 		{
 			get { return (int)this[nameof(PrintStatusCount)]; }
 			set { this[nameof(PrintStatusCount)] = value; }
 		}
 
+		/// <summary>
+		/// should the script-output be copied to the clipboad instead of saved to disk?
+		/// </summary>
 		public bool ScriptToClipboard
 		{
 			get { return (bool)this[nameof(ScriptToClipboard)]; }
 			set { this[nameof(ScriptToClipboard)] = value; }
 		}
 
-
 		/// <summary>
-		/// returns context menu items for the dataset tables list-box
+		/// builds the context menu items for the selected data-set-table
 		/// </summary>
-		public IEnumerable<Control> SelectedTableContextActions
+		public IEnumerable<FrameworkElement> SelectedTableContextActions
 		{
 			get
 			{
@@ -152,6 +185,7 @@ namespace ScriptView
 				var mnuPKey = new MenuItem { Header = "Update Primary Key", ToolTip = "Sets the table's primary-key to be the checked columns", IsEnabled = false };
 
 				// create a sub-context menu containing one of each column:
+				// to enable the operator to change the primary key sequence:
 				foreach (DataColumn col in SelectedTable.Columns)
 				{
 					var column = new MenuItem() { Header = col.ColumnName };
@@ -219,17 +253,17 @@ namespace ScriptView
 				var mnuScriptInsert = new MenuItem { Header = "As Insert" };
 				mnuScriptInsert.Click += (s, e) =>
 				{
-					this.SelectedScriptType = ScriptType.Insert;
+					this.SelectedScriptType = DbScriptType.Insert;
 					this.ExecuteCreateScript(null);
 				};
 				var mnuScriptUpdate = new MenuItem { Header = "As Update" };
 				mnuScriptUpdate.Click += (s, e) => {
-					this.SelectedScriptType = ScriptType.Update;
+					this.SelectedScriptType = DbScriptType.Update;
 					this.ExecuteCreateScript(null);
 				};
 				var mnuScriptDelete = new MenuItem { Header = "As Delete" };
 				mnuScriptDelete.Click += (s, e) => {
-					this.SelectedScriptType = ScriptType.Delete;
+					this.SelectedScriptType = DbScriptType.Delete;
 					this.ExecuteCreateScript(null);
 				};
 				mnuScript.Items.Add(mnuScriptInsert);
@@ -264,26 +298,34 @@ namespace ScriptView
 					}
 				};
 
+				// create a menu-item to set the "scriptName" extended property (if it is set)
 				if (SelectedTable.ExtendedProperties.ContainsKey("scriptName"))
 				{
+					// create the menu:
 					var mnuName = new MenuItem { Header = "Set Script Name" };
+
+					// create a text-box:
 					var txt = new TextBox() { Text = SelectedTable.ExtendedProperties["scriptName"] as string };
 					txt.HorizontalAlignment = HorizontalAlignment.Stretch;
-					txt.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+					txt.HorizontalContentAlignment = HorizontalAlignment.Left;
 					txt.MinWidth = 100;
 					txt.FontFamily = new FontFamily("Consolas");
 
-
-					mnuName.Items.Add(new Separator());
+					// add to the menu:
+					mnuName.Items.Add(new TextBlock() { Text = "Update Script Output Name:" });
 					mnuName.Items.Add(txt);
-					mnuName.Items.Add(new Separator());
 					mnuName.StaysOpenOnClick = true;
 
+					// update the property value whenever the text changes:
 					txt.TextChanged += (s, e) => SelectedTable.ExtendedProperties["scriptName"] = ((TextBox)s).Text;
 
 					yield return mnuName;
 				}
 
+
+
+
+				// yield the menu as built:
 				yield return mnuRemove;
 				yield return new Separator();
 
@@ -499,21 +541,21 @@ namespace ScriptView
 			}
 		}
 
-		public IEnumerable<ScriptType> ScriptTypes
+		public IEnumerable<DbScriptType> ScriptTypes
 		{
 			get
 			{
-				yield return ScriptType.Insert;
-				yield return ScriptType.InsertUpdate;
-				yield return ScriptType.DeleteInsert;
-				yield return ScriptType.Update;
-				yield return ScriptType.Delete;
+				yield return DbScriptType.Insert;
+				yield return DbScriptType.InsertUpdate;
+				yield return DbScriptType.DeleteInsert;
+				yield return DbScriptType.Update;
+				yield return DbScriptType.Delete;
 			}
 		}
 
-		public ScriptType SelectedScriptType
+		public DbScriptType SelectedScriptType
 		{
-			get { return (ScriptType)this[nameof(SelectedScriptType)]; }
+			get { return (DbScriptType)this[nameof(SelectedScriptType)]; }
 			set { this[nameof(SelectedScriptType)] = value;
 				OnPropertyChanged(nameof(GenerateScriptButtonText));
 			}

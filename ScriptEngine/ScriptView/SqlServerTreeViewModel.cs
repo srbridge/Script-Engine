@@ -14,37 +14,31 @@ namespace ScriptView
 	/// <summary>
 	/// bind the tree-view's ItemsSource to this object's Nodes collection, bind dock, visibility, tooltip, cursor etc. to this object too.
 	/// </summary>
-	class SqlEnvironmentModel : Quick.MVVM.TreeViewModel<SqlServerModel>
+	class SqlEnvironmentViewModel : TreeViewModel<DataSetViewModel, SqlServerViewModel>
 	{
-		public SqlEnvironmentModel(DataSetViewModel owner)	 
-			:base()
+		public SqlEnvironmentViewModel(DataSetViewModel owner)	 
+			:base(owner)
 		{
 			this.Visible = System.Windows.Visibility.Visible;
 			this.Owner   = owner;
 			
-			Task.Run(()=>QueryServers());
+			Task.Run(()=> QueryNodes());
 		}
 
 		/// <summary>
-		/// the owning data-set-view-model;
+		/// searches for and adds discovered sql servers.
 		/// </summary>
-		public DataSetViewModel Owner { get; set; }
-
-		public SqlServerModel SelectedServer
+		protected override void QueryNodes()
 		{
-			get { return this[nameof(SelectedServer)] as SqlServerModel; }
-			set { this[nameof(SelectedServer)] = value; }
-		}
-
-		protected void QueryServers()
-		{
+			
 			try
 			{
 				this.IsBusy = true;
-				foreach (var info in SqlServerInfo.GetDataSources(false))
+
+				foreach (var info in SqlServerInfo.GetDataSources(false).OrderBy((i)=> i.ServerName))
 				{
 					// construct the server info model:
-					var serverModel = new SqlServerModel(info) { Owner = this.Owner };
+					var serverModel = new SqlServerViewModel(info) { Owner = this.Owner };
 
 					// add it to the nodes collection:
 					SafeInvoke(() => Nodes.Add(serverModel));
@@ -60,9 +54,9 @@ namespace ScriptView
 	/// <summary>
 	/// bind a hierarchal data template to this view-model. Each instance of this model represents a SERVER node.
 	/// </summary>
-	class SqlServerModel : TreeModel<SqlServerInfo, SqlDatabaseModel>
+	class SqlServerViewModel : TreeViewModel<SqlServerInfo, SqlDatabaseViewModel>
 	{	
-		public SqlServerModel(SqlServerInfo info)  :base(info)
+		public SqlServerViewModel(SqlServerInfo info)  :base(info)
 		{													 
 			if (string.IsNullOrEmpty(info.InstanceName))
 				this.Name = info.ServerName;
@@ -102,7 +96,7 @@ namespace ScriptView
 				foreach (var db_info in Info.EnumerateChildren())
 				{
 					// create the database model:
-					var db_model = new SqlDatabaseModel(db_info) { Owner = this.Owner } ;
+					var db_model = new SqlDatabaseViewModel(db_info) { Owner = this.Owner } ;
 
 					// add it to the nodes collection:
 					SafeInvoke(() => Nodes.Add(db_model));
@@ -116,10 +110,13 @@ namespace ScriptView
 
 	}
 
-	class SqlDatabaseModel  : TreeModel<SqlDbInfo, SqlTableModel>
+	/// <summary>
+	/// each instance of this model represents a database within a server
+	/// </summary>
+	class SqlDatabaseViewModel  : TreeViewModel<SqlDbInfo, SqlTableViewModel>
 	{
 		
-		public SqlDatabaseModel(SqlDbInfo info) : base(info)
+		public SqlDatabaseViewModel(SqlDbInfo info) : base(info)
 		{													
 			this.Name = info.DBName;
 			SafeInvoke(()=>this.Icon = new BitmapImage(new Uri("pack://application:,,,/images/database_16xLG.png", UriKind.Absolute)));
@@ -142,7 +139,7 @@ namespace ScriptView
 				foreach (var tbl_info in Info.EnumerateChildren())
 				{
 					// create the database model:
-					var db_model = new SqlTableModel(tbl_info) { Owner = this.Owner };
+					var db_model = new SqlTableViewModel(tbl_info) { Owner = this.Owner };
 
 					// add it to the nodes collection:
 					SafeInvoke(() => Nodes.Add(db_model));
@@ -155,10 +152,13 @@ namespace ScriptView
 		}
 	}
 
-	class SqlTableModel	: TreeModel<SqlDbTableInfo, SqlColumnModel>
+	/// <summary>
+	/// a table within a database
+	/// </summary>
+	class SqlTableViewModel	: TreeViewModel<SqlDbTableInfo, SqlColumnViewModel>
 	{
 		
-		public SqlTableModel(SqlDbTableInfo info) : base(info)
+		public SqlTableViewModel(SqlDbTableInfo info) : base(info)
 		{
 			this.Name = info.TableName;
 			SafeInvoke(() => Icon = new BitmapImage(new Uri("pack://application:,,,/images/Table_748.png", UriKind.Absolute)));
@@ -181,7 +181,7 @@ namespace ScriptView
 				foreach (var tbl_info in Info.EnumerateChildren())
 				{
 					// create the database model:
-					var db_model = new SqlColumnModel(tbl_info);
+					var db_model = new SqlColumnViewModel(tbl_info);
 
 					// add it to the nodes collection:
 					SafeInvoke(() => Nodes.Add(db_model));
@@ -194,9 +194,12 @@ namespace ScriptView
 		}
 	}
 
-	class SqlColumnModel : Quick.MVVM.SimpleViewModel
+	/// <summary>
+	/// a column within a table
+	/// </summary>
+	class SqlColumnViewModel : SimpleViewModel
 	{
-		public SqlColumnModel(SqlDbColumnInfo info)
+		public SqlColumnViewModel(SqlDbColumnInfo info)
 		{
 			this.Name = info.Description;
 		}
@@ -208,28 +211,45 @@ namespace ScriptView
 		}
 	}
 
-
-	abstract class TreeModel<T,C> : Quick.MVVM.TreeViewModel
+	/// <summary>
+	/// reduces the amount of repetition coding the above classes.
+	/// </summary>
+	/// <typeparam name="tInfo"></typeparam>
+	/// <typeparam name="tChildViewModel"></typeparam>
+	abstract class TreeViewModel<tInfo, tChildViewModel> : TreeViewModel
 	{
+		/// <summary>
+		/// used to trap the first OnSelected.
+		/// </summary>
 		bool m_sentinal = false;
 
-		public TreeModel(T info)
+		/// <summary>
+		/// construct with the required info.
+		/// </summary>
+		/// <param name="info"></param>
+		public TreeViewModel(tInfo info)
 		{
 			this.Info = info;
-			#pragma warning disable RECS0021 // Warns about calls to virtual member functions occuring in the constructor
-			this.OnSelected = OnNodeSelected;
-			#pragma warning restore RECS0021 // Warns about calls to virtual member functions occuring in the constructor
+			#pragma warning disable RECS0021	// Warns about calls to virtual member functions occuring in the constructor
+			this.OnSelected = OnNodeSelected;	// assigning virtual method in constructor but not calling it. warning is oversensitive.
+			#pragma warning restore RECS0021	// Warns about calls to virtual member functions occuring in the constructor
 		}
 
+		/// <summary>
+		/// an image-source to bind to an image for the node.
+		/// </summary>
 		public BitmapImage Icon
 		{
 			get { return this[nameof(Icon)] as BitmapImage; }
 			set { this[nameof(Icon)] = value; }
 		}
 
-		public T Info
+		/// <summary>
+		/// the information the node is displaying.
+		/// </summary>
+		public tInfo Info
 		{
-			get { return (T)this[nameof(Info)]; }
+			get { return (tInfo)this[nameof(Info)]; }
 			set { this[nameof(Info)] = value; }
 		}
 
@@ -238,6 +258,10 @@ namespace ScriptView
 		/// </summary>
 		public DataSetViewModel Owner { get; set; }
 
+		/// <summary>
+		/// invoked when the node is selected
+		/// </summary>
+		/// <param name="sender"></param>
 		protected virtual void OnNodeSelected(SimpleViewModel sender)
 		{													 
 			if (!m_sentinal)
@@ -247,9 +271,15 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// when the first time the node is selected, this method will be executed. override to add records to the nodes collection
+		/// </summary>
 		protected abstract void QueryNodes();
 
-		public ObservableCollection<C> Nodes { get; } = new ObservableCollection<C>();
+		/// <summary>
+		/// the nodes collection
+		/// </summary>
+		public ObservableCollection<tChildViewModel> Nodes { get; } = new ObservableCollection<tChildViewModel>();
 
 	}
 
