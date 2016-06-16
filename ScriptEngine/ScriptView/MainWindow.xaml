@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:ScriptView"
         xmlns:data ="clr-namespace:System.Data;assembly=System.Data"
         mc:Ignorable="d"
-        Title="Data Set Viewer" Height="500" Width="800"
+        Title="Data Set Scripting Tool" Height="600" Width="800"
         Cursor="{Binding Cursor}" Icon="SQLServer_5728.ico"
         >
     <Window.DataContext>
@@ -20,10 +20,6 @@
             </MenuItem>
             <MenuItem Header="View">
                 <MenuItem Header="Toggle SQL Server Query" Click="MenuItem_Click" StaysOpenOnClick="True"/>
-                <TextBox MinWidth="100" Text="{Binding CommandText}"/>
-                <MenuItem Header="Test">
-                    <TextBox Background="Red" HorizontalAlignment="Stretch"/>
-                </MenuItem>
             </MenuItem>
         </Menu>
 

@@ -161,7 +161,7 @@ namespace ScriptView
 				var tbl = conn.GetSchema("Databases");
 
 				// enumerate the databases and create a DBInfo for each row:
-				foreach (DataRow row in tbl.Rows)
+				foreach (DataRow row in tbl.Select("1=1","database_name asc"))
 				{
 					// add the db-info to the databases collection.
 					yield return new SqlDbInfo(ServerName, InstanceName, row.Field<string>("database_name"), false);
