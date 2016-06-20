@@ -43,7 +43,7 @@ namespace ScriptView
 			this.PrintStatusCount = 50;
 			this.SelectedScriptType = DbScriptType.InsertUpdate;
 			this.ScriptToClipboard = false;
-			this.DatabaseCount = "None";
+
 
 			if (InDesignMode)
 			{
@@ -61,6 +61,20 @@ namespace ScriptView
 				this.SelectedConnection = new SqlDbInfo("SomeServer", "SomeInstance", "SomeDatabase");
 			}
 
+		}
+
+		#region SQL Servers
+
+		/// <summary>
+		/// gets or sets a query to execute against the selected connection.
+		/// </summary>
+		public string CommandText
+		{
+			get { return this[nameof(CommandText)] as string; }
+			set
+			{
+				this[nameof(CommandText)] = value;
+			}
 		}
 
 		/// <summary>
@@ -83,6 +97,34 @@ namespace ScriptView
 				this[nameof(SelectedSqlServer)] = value;
 			}
 		}
+
+		/// <summary>
+		/// the currently selected database	connection
+		/// </summary>
+		public SqlDbInfo SelectedConnection
+		{
+			get { return this[nameof(SelectedConnection)] as SqlDbInfo; }
+			set
+			{
+				this[nameof(SelectedConnection)] = value;
+			}
+		}
+
+		/// <summary>
+		/// the currently selected database connection table
+		/// </summary>
+		public SqlDbTableInfo SelectedConnectionTable
+		{
+			get { return this[nameof(SelectedConnectionTable)] as SqlDbTableInfo; }
+			set
+			{
+				this[nameof(SelectedConnectionTable)] = value;
+			}
+		}
+
+		#endregion
+
+		#region Commands
 
 		/// <summary>
 		/// command to execute the select statement and return the result to the data-set;
@@ -140,6 +182,37 @@ namespace ScriptView
 			get { return new RelayCommand(() => SelectedConnectionTable != null, ExecuteCreateSelect); }
 		}
 
+		#endregion
+
+		#region Scripting Options Properties
+
+		/// <summary>
+		/// the available types of scripts to create
+		/// </summary>
+		public IEnumerable<DbScriptType> ScriptTypes
+		{
+			get
+			{
+				yield return DbScriptType.Insert;
+				yield return DbScriptType.InsertUpdate;
+				yield return DbScriptType.DeleteInsert;
+				yield return DbScriptType.Update;
+				yield return DbScriptType.Delete;
+			}
+		}
+
+		/// <summary>
+		/// the type of script to create
+		/// </summary>
+		public DbScriptType SelectedScriptType
+		{
+			get { return (DbScriptType)this[nameof(SelectedScriptType)]; }
+			set
+			{
+				this[nameof(SelectedScriptType)] = value;
+				OnPropertyChanged(nameof(GenerateScriptButtonText));
+			}
+		}
 
 		/// <summary>
 		/// should the script use a transaction?
@@ -172,6 +245,9 @@ namespace ScriptView
 			set { this[nameof(ScriptToClipboard)] = value; }
 		}
 
+		#endregion
+
+
 		/// <summary>
 		/// builds the context menu items for the selected data-set-table
 		/// </summary>
@@ -179,6 +255,8 @@ namespace ScriptView
 		{
 			get
 			{
+				if (SelectedTable == null)
+					yield break;
 
 				// build columns menu items
 				var mnuCols = new MenuItem { Header = "Columns" };
@@ -207,7 +285,6 @@ namespace ScriptView
 
 				mnuCols.Items.Add(new Separator());
 				mnuCols.Items.Add(mnuPKey);
-
 				mnuPKey.Click += (s, e) => {
 					var menu = s as MenuItem;
 					var p = menu?.Parent as MenuItem;
@@ -337,6 +414,18 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// text for the generate script button
+		/// </summary>
+		public string GenerateScriptButtonText
+		{
+			get
+			{
+				return $"Generate {SelectedScriptType} Script for {SelectedTable.TableName}";
+			}
+		}
+
+		#region Command Methods
 
 		protected void ExecuteCreateScript(object param)
 		{
@@ -521,7 +610,6 @@ namespace ScriptView
 			}
 		}
 
-
 		protected void ExecuteCreateSelect(object param)
 		{
 			var tableName = SelectedConnectionTable?.TableName;
@@ -532,76 +620,9 @@ namespace ScriptView
 			}
 		}
 
+		#endregion
 
-		public string GenerateScriptButtonText
-		{
-			get
-			{
-				return $"Generate {SelectedScriptType} Script for {SelectedTable.TableName}";
-			}
-		}
-
-		public IEnumerable<DbScriptType> ScriptTypes
-		{
-			get
-			{
-				yield return DbScriptType.Insert;
-				yield return DbScriptType.InsertUpdate;
-				yield return DbScriptType.DeleteInsert;
-				yield return DbScriptType.Update;
-				yield return DbScriptType.Delete;
-			}
-		}
-
-		public DbScriptType SelectedScriptType
-		{
-			get { return (DbScriptType)this[nameof(SelectedScriptType)]; }
-			set
-			{
-				this[nameof(SelectedScriptType)] = value;
-				OnPropertyChanged(nameof(GenerateScriptButtonText));
-			}
-		}
-
-
-		public string DatabaseCount
-		{
-			get { return (string)this[nameof(DatabaseCount)]; }
-			set { this[nameof(DatabaseCount)] = value; }
-		}
-
-
-		public SqlDbInfo SelectedConnection
-		{
-			get { return this[nameof(SelectedConnection)] as SqlDbInfo; }
-			set
-			{
-				this[nameof(SelectedConnection)] = value;
-			}
-		}
-
-		public SqlDbTableInfo SelectedConnectionTable
-		{
-			get { return this[nameof(SelectedConnectionTable)] as SqlDbTableInfo; }
-			set
-			{
-				this[nameof(SelectedConnectionTable)] = value;
-			}
-		}
-
-
-
-		/// <summary>
-		/// gets or sets a query to execute.
-		/// </summary>
-		public string CommandText
-		{
-			get { return this[nameof(CommandText)] as string; }
-			set
-			{
-				this[nameof(CommandText)] = value;
-			}
-		}
+		#region DataSet Properties
 
 		/// <summary>
 		/// gets or sets the model as a DataSet;
@@ -652,18 +673,43 @@ namespace ScriptView
 			}
 		}
 
+		#endregion
 
 	}
 
+	/// <summary>
+	/// provides some additional properties to the <see cref="DataTable"/> for display in a list-box
+	/// </summary>
 	public class DataTableMount
 	{
+		/// <summary>
+		/// the data table
+		/// </summary>
 		DataTable m_tbl;
+
+		/// <summary>
+		/// constructor
+		/// </summary>
+		/// <param name="tbl"></param>
 		public DataTableMount(DataTable tbl)
 		{
 			m_tbl = tbl;
 		}
-		public string Name { get { return m_tbl.TableName; } set { m_tbl.TableName = value; } }
+
+		/// <summary>
+		/// gets/sets the name of the data-table
+		/// </summary>
+		public string Name  { get { return m_tbl.TableName; }
+							  set { m_tbl.TableName = value; } }
+
+		/// <summary>
+		/// gets the number of rows
+		/// </summary>
 		public int RowCount { get { return m_tbl.Rows.Count; } }
+
+		/// <summary>
+		/// gets the original select statement used to populate the table (if set)
+		/// </summary>
 		public string SelectStatement
 		{
 			get
@@ -675,6 +721,10 @@ namespace ScriptView
 
 			}
 		}
+
+		/// <summary>
+		/// gets the table's alias for scripting.
+		/// </summary>
 		public string ScriptName
 		{
 			get
@@ -687,6 +737,9 @@ namespace ScriptView
 
 		}
 
+		/// <summary>
+		/// gets a description of the table
+		/// </summary>
 		public string Description
 		{
 			get
@@ -699,11 +752,16 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// string representation copied from the data-table.
+		/// </summary>
+		/// <returns></returns>
 		public override string ToString()
 		{
 			return m_tbl.ToString();
 		}
 
+		#region Implicit Conversion Operators: TO/FRO DataTable
 		public static implicit operator DataTable(DataTableMount m)
 		{
 			return m.m_tbl;
@@ -712,6 +770,8 @@ namespace ScriptView
 		{
 			return new DataTableMount(tbl);
 		}
+		#endregion
+
 	}
 
 }

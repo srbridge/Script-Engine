@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace Quick.MVVM
 {
@@ -56,6 +57,17 @@ namespace Quick.MVVM
 	/// </summary>
 	public class SimpleViewModel : INotifyPropertyChanged
 	{
+		public SimpleViewModel()
+		{
+
+			this.FontFamily = new FontFamily("Segoe UI");
+			this.FontStyle  = FontStyles.Normal;
+			this.Foreground = Brushes.Black;
+			this.Background = Brushes.White;
+			this.FontWeight = FontWeights.Normal;
+
+		}
+
 		protected Dictionary<string, object> _values = new Dictionary<string, object>();
 
 		protected T Get<T>(string name)
@@ -126,6 +138,36 @@ namespace Quick.MVVM
 					this.Cursor = Cursors.Arrow;
 				}
 			}
+		}
+
+		public Brush Foreground
+		{
+			get { return this[nameof(Foreground)] as Brush; }
+			set { this[nameof(Foreground)] = value; }
+		}
+
+		public Brush Background
+		{
+			get { return this[nameof(Background)] as Brush; }
+			set { this[nameof(Background)] = value; }
+		}
+
+		public FontFamily FontFamily
+		{
+			get { return this[nameof(FontFamily)] as FontFamily; }
+			set { this[nameof(FontFamily)] = value; }
+		}
+
+		public FontWeight FontWeight
+		{
+			get { return (FontWeight)this[nameof(FontWeight)]; }
+			set { this[nameof(FontWeight)] = value; }
+		}
+
+		public FontStyle FontStyle
+		{
+			get { return (FontStyle)this[nameof(FontStyle)]; }
+			set { this[nameof(FontStyle)] = value; }
 		}
 
 		public event PropertyChangedEventHandler PropertyChanged;

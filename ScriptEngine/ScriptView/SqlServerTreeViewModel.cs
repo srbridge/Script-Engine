@@ -7,6 +7,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace ScriptView
@@ -22,6 +24,7 @@ namespace ScriptView
 			this.Visible = System.Windows.Visibility.Visible;
 			this.Owner   = owner;
 			
+			// immediately start query for sql server:
 			Task.Run(()=> QueryNodes());
 		}
 
@@ -34,6 +37,7 @@ namespace ScriptView
 			try
 			{
 				this.IsBusy = true;
+				this.Owner.IsBusy = true;
 
 				foreach (var info in SqlServerInfo.GetDataSources(false).OrderBy((i)=> i.ServerName))
 				{
@@ -43,10 +47,12 @@ namespace ScriptView
 					// add it to the nodes collection:
 					SafeInvoke(() => Nodes.Add(serverModel));
 				}
+
 			}
 			finally
 			{
 				this.IsBusy = false;
+				this.Owner.IsBusy = false;
 			}
 		}
 	}
@@ -118,7 +124,7 @@ namespace ScriptView
 		
 		public SqlDatabaseViewModel(SqlDbInfo info) : base(info)
 		{													
-			this.Name = info.DBName;
+			this.Name = info.DataBaseName;
 			SafeInvoke(()=>this.Icon = new BitmapImage(new Uri("pack://application:,,,/images/database_16xLG.png", UriKind.Absolute)));
 		}
 
@@ -192,6 +198,25 @@ namespace ScriptView
 				this.IsBusy = false;
 			}
 		}
+
+		public ContextMenu ContextMenu
+		{
+			get
+			{
+				var mnu = new ContextMenu();
+				mnu.Items.Add(new MenuItem() { Header = "Create Select", Command = CreateSelect });
+
+				return mnu;
+			}
+		}
+
+		public ICommand CreateSelect
+		{
+			get
+			{
+				return new RelayCommand((o) => this.Owner.CommandText = $"SELECT * FROM [{this.Info.TableName}]");
+			}
+		}
 	}
 
 	/// <summary>
@@ -202,12 +227,24 @@ namespace ScriptView
 		public SqlColumnViewModel(SqlDbColumnInfo info)
 		{
 			this.Name = info.Description;
+			this.Foreground = Brushes.Blue;
+
+			SafeInvoke(() => this.Icon = new BitmapImage(new Uri("pack://application:,,,/images/column_16xLG.png", UriKind.Absolute)));
 		}
 
 		public string Name
 		{
 			get { return this[nameof(Name)] as string; }
 			set { this[nameof(Name)] = value; }
+		}
+
+		/// <summary>
+		/// an image-source to bind to an image for the node.
+		/// </summary>
+		public BitmapImage Icon
+		{
+			get { return this[nameof(Icon)] as BitmapImage; }
+			set { this[nameof(Icon)] = value; }
 		}
 	}
 

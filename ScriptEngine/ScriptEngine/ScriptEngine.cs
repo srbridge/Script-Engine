@@ -175,6 +175,108 @@ namespace DataScriptEngine
 			}
 		}
 
+		/// <summary>
+		/// returns the DDL required to create the table
+		/// </summary>
+		public string CreateTable
+		{
+			get
+			{
+				// define the format of the create table command:
+				var fmt = "CREATE TABLE [{0}](\r\n{1}\r\n)";
+
+				// for building the column-definitions:
+				var coldef = new StringBuilder();
+
+				// enumerate the column definitions:
+				foreach (var col in this.SchemaInfo)
+				{
+
+					// get the sql-db type name appropriate to the columns data-type
+					string datatype = col.SqlDbType.ToString().ToLower();
+
+					// some data-types require parameters:
+					string datatypeParam = "";
+
+					// is the sql type a string type?
+					if (col.SqlDbType.IsStringType())
+					{
+						// has the size been specified:
+						if (col.ColumnSize > 0)
+						{
+							// set the data-type parameter to the specified size;
+							datatypeParam = string.Format("({0})", col.ColumnSize);
+						}
+						else
+						{
+							// if no size is specified, use MAX
+							datatypeParam = "(MAX)";
+						}
+					}
+					else
+					{
+						// decimal types require precision and scale:
+						if (col.SqlDbType == SqlDbType.Decimal)
+						{
+							datatypeParam = string.Format("({0},{1})", col.NumericPrecision, col.NumericScale);
+						}
+					}
+					// just formatting:
+					if (coldef.Length > 0)
+					{
+						coldef.AppendLine(",\r\n");
+					}
+					// add the column definition to the string:
+					var f = new StringBuilder("\t[{0}] [{1}]{2}");
+					if (col.IsIdentity)
+					{
+						f.Append(" IDENTITY(1,1)");
+					}
+					if (col.AllowDBNull)
+						f.Append(" NULL");
+					else
+						f.Append(" NOT NULL");
+
+
+					coldef.AppendFormat(f.ToString(), col.ColumnName, datatype, datatypeParam);
+	
+				}
+
+				// select the primary keys from the columns enumeration:
+				var pkeys = (from c in SchemaInfo where c.IsKey select c).ToArray();
+
+				// are any primary keys defined?
+				if (pkeys.Length > 0)
+				{
+					// calculate the name for the constraint:
+					var pkName = "PK_" + TableName;
+
+					// create the primary-key constraint definition:
+					var pkCols = new StringBuilder();
+					foreach (var k in pkeys)
+					{
+						if (pkCols.Length > 0)
+							pkCols.Append(",\r\n");
+						pkCols.AppendFormat("\t\t[{0}] ASC", k.ColumnName);
+
+					}
+
+					// prepend a comma
+					if (coldef.Length > 0)
+					{
+						coldef.AppendLine(",\r\n");
+					}
+
+					//
+					coldef.AppendFormat("\tCONSTRAINT [{0}] PRIMARY KEY CLUSTERED\r\n\t(\r\n{1}\r\n\t)\r\n", pkName, pkCols);
+				}
+
+				return string.Format(fmt, TableName, coldef);
+
+			}
+		}
+
+
 		#region Fill - Methods to fill the scripting table holder
 
 		/// <summary>
