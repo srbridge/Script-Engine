@@ -13,6 +13,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace ScriptView
 {
@@ -147,7 +148,7 @@ namespace ScriptView
 		{
 			get
 			{
-				return new RelayCommand(() => Model != null, ExecuteSaveAsXML);
+				return new RelayCommand(() => Model != null, ExecuteSave);
 			}
 		}
 
@@ -158,7 +159,7 @@ namespace ScriptView
 		{
 			get
 			{
-				return new RelayCommand(() => Model != null, ExecuteLoadFromXML);
+				return new RelayCommand(() => Model != null, ExecuteLoad);
 			}
 
 		}
@@ -180,6 +181,14 @@ namespace ScriptView
 		public ICommand CreateSelectStatement
 		{
 			get { return new RelayCommand(() => SelectedConnectionTable != null, ExecuteCreateSelect); }
+		}
+
+		/// <summary>
+		/// command to download schema for the current connection
+		/// </summary>
+		public ICommand DownloadSchema
+		{
+			get { return new RelayCommand(() => SelectedConnection != null, ExecuteGetSchema); }
 		}
 
 		#endregion
@@ -247,7 +256,6 @@ namespace ScriptView
 
 		#endregion
 
-
 		/// <summary>
 		/// builds the context menu items for the selected data-set-table
 		/// </summary>
@@ -258,34 +266,52 @@ namespace ScriptView
 				if (SelectedTable == null)
 					yield break;
 
-				// build columns menu items
+				// create the required items:
 				var mnuCols = new MenuItem { Header = "Columns" };
 				var mnuPKey = new MenuItem { Header = "Update Primary Key", ToolTip = "Sets the table's primary-key to be the checked columns", IsEnabled = false };
+				var mnuScript = new MenuItem { Header = $"Script {SelectedTable.TableName}" };
+				var mnuScriptInsert = new MenuItem { Header = "As Insert" };
+				var mnuScriptUpdate = new MenuItem { Header = "As Update" };
+				var mnuScriptDelete = new MenuItem { Header = "As Delete" };
+				var mnuRemove = new MenuItem { Header = $"Remove {SelectedTable.TableName}", Tag = SelectedTable };
 
 				// create a sub-context menu containing one of each column:
 				// to enable the operator to change the primary key sequence:
-				foreach (DataColumn col in SelectedTable.Columns)
+				foreach (var col in SelectedTable.Columns.Cast<DataColumn>())
 				{
-					var column = new MenuItem() { Header = col.ColumnName };
-					column.IsCheckable = true;
-					column.IsChecked = SelectedTable.PrimaryKey.Contains(col);
-					if (column.IsChecked)
+					var mnuCol = new MenuItem
 					{
-						column.FontWeight = FontWeights.Bold;
-						column.Foreground = Brushes.Blue;
+						Header = col.ColumnName,
+						IsCheckable = true,
+						IsChecked = SelectedTable.PrimaryKey.Contains(col),
+						StaysOpenOnClick = true,
+						Tag = col
+					};
+					if (mnuCol.IsChecked)
+					{
+						mnuCol.FontWeight = FontWeights.Bold;
+						mnuCol.Foreground = Brushes.Blue;
 					}
-					column.StaysOpenOnClick = true;
-					column.Tag = col;
-					column.Checked += (s, e) => mnuPKey.IsEnabled = true;
-					column.Unchecked += (s, e) => mnuPKey.IsEnabled = true;
+					mnuCol.Checked   += (s, e) => mnuPKey.IsEnabled = true;
+					mnuCol.Unchecked += (s, e) => mnuPKey.IsEnabled = true;
 
 					// add to the 'columns' menu
-					mnuCols.Items.Add(column);
+					mnuCols.Items.Add(mnuCol);
 				}
 
 				mnuCols.Items.Add(new Separator());
 				mnuCols.Items.Add(mnuPKey);
-				mnuPKey.Click += (s, e) => {
+
+				
+				mnuScript.Icon = new Image { Source = new BitmapImage(new Uri("pack://application:,,,/images/script_32xLG.png", UriKind.Absolute)) };
+				mnuScript.Items.Add(mnuScriptInsert);
+				mnuScript.Items.Add(mnuScriptUpdate);
+				mnuScript.Items.Add(mnuScriptDelete);
+				
+
+				// assign the click event handlers:
+				mnuPKey.Click += (s, e) =>
+				{
 					var menu = s as MenuItem;
 					var p = menu?.Parent as MenuItem;
 					DataTable tbl = null;
@@ -325,29 +351,21 @@ namespace ScriptView
 						}
 					}
 				};
-
-				var mnuScript = new MenuItem { Header = $"Script [{SelectedTable.TableName}]" };
-				var mnuScriptInsert = new MenuItem { Header = "As Insert" };
 				mnuScriptInsert.Click += (s, e) =>
 				{
 					this.SelectedScriptType = DbScriptType.Insert;
 					this.ExecuteCreateScript(null);
 				};
-				var mnuScriptUpdate = new MenuItem { Header = "As Update" };
-				mnuScriptUpdate.Click += (s, e) => {
+				mnuScriptUpdate.Click += (s, e) => 
+				{
 					this.SelectedScriptType = DbScriptType.Update;
 					this.ExecuteCreateScript(null);
 				};
-				var mnuScriptDelete = new MenuItem { Header = "As Delete" };
-				mnuScriptDelete.Click += (s, e) => {
+				mnuScriptDelete.Click += (s, e) => 
+				{
 					this.SelectedScriptType = DbScriptType.Delete;
 					this.ExecuteCreateScript(null);
 				};
-				mnuScript.Items.Add(mnuScriptInsert);
-				mnuScript.Items.Add(mnuScriptUpdate);
-				mnuScript.Items.Add(mnuScriptDelete);
-
-				var mnuRemove = new MenuItem { Header = $"Remove [{SelectedTable.TableName}]", Tag = SelectedTable };
 				mnuRemove.Click += (s, e) =>
 				{
 					var mnu = s as MenuItem;
@@ -379,17 +397,20 @@ namespace ScriptView
 				if (SelectedTable.ExtendedProperties.ContainsKey("scriptName"))
 				{
 					// create the menu:
-					var mnuName = new MenuItem { Header = "Set Script Name" };
+					var mnuName = new MenuItem { Header = "Set Script Output Name" };
 
 					// create a text-box:
-					var txt = new TextBox() { Text = SelectedTable.ExtendedProperties["scriptName"] as string };
+					var txt = new TextBox { Text = SelectedTable.ExtendedProperties["scriptName"] as string };
+
 					txt.HorizontalAlignment = HorizontalAlignment.Stretch;
 					txt.HorizontalContentAlignment = HorizontalAlignment.Left;
-					txt.MinWidth = 100;
+					txt.MinWidth   = 100;
+					txt.Padding    = new Thickness(2);
+					txt.Margin     = new Thickness(3);
 					txt.FontFamily = new FontFamily("Consolas");
 
 					// add to the menu:
-					mnuName.Items.Add(new TextBlock() { Text = "Update Script Output Name:" });
+					mnuName.Items.Add("Update Script Output Name:");
 					mnuName.Items.Add(txt);
 					mnuName.StaysOpenOnClick = true;
 
@@ -399,18 +420,13 @@ namespace ScriptView
 					yield return mnuName;
 				}
 
-
-
-
 				// yield the menu as built:
 				yield return mnuRemove;
 				yield return new Separator();
-
 				yield return mnuScript;
 				yield return new Separator();
-
 				yield return mnuCols;
-
+				
 			}
 		}
 
@@ -427,23 +443,33 @@ namespace ScriptView
 
 		#region Command Methods
 
+		/// <summary>
+		/// creates a script from the selected data-table with the selected options
+		/// </summary>
+		/// <param name="param">not used, pass in as null</param>
 		protected void ExecuteCreateScript(object param)
 		{
 			if (SelectedTable != null)
 			{
-
-
+				// create a file-save dialog:
 				var dlg = new Microsoft.Win32.SaveFileDialog();
+
+				// store the dialog result:
 				bool? result = null;
 
+				// saving to disk?
 				if (!ScriptToClipboard)
 				{
+					// setup and display the dialog:
 					dlg.Filter = "SQL Scripts (*.SQL)|*.sql";
 					dlg.Title = $"Save {this.SelectedScriptType} Script for {SelectedTable.TableName} As";
 					dlg.FileName = $"{SelectedScriptType}_{SelectedTable.TableName}_{DateTime.Now.ToString("yyyyMMddhhmm")}.SQL";
 
+					// record the result:
 					result = dlg.ShowDialog();
 				}
+
+				// end point is setup:
 				if (this.ScriptToClipboard || result.HasValue && result.Value)
 				{
 					try
@@ -457,32 +483,43 @@ namespace ScriptView
 						// fill from the data-set;
 						tbl.Fill(SelectedTable);
 
+						// set the script table name from the "scriptName" extended property
 						if (SelectedTable.ExtendedProperties.ContainsKey("scriptName"))
 						{
 							tbl.TableName = SelectedTable.ExtendedProperties["scriptName"] as string;
 						}
 
-						// set the comment on the table; this will be added to the top of the script.
+						// set the comment on the table; this will be added to the top of the script;
+						// does the table reference the original select statement?
 						if (SelectedTable.ExtendedProperties.ContainsKey("select"))
 						{
+							// include the original select
+							// does it also reference the connection string?
 							if (SelectedTable.ExtendedProperties.ContainsKey("connect"))
 							{
+								// set the table comment to quote the original select statement and connect string.
 								tbl.Comment = $"original query: {SelectedTable.ExtendedProperties["select"]}\r\n    from: {SelectedTable.ExtendedProperties["connect"]}";
 							}
 							else
 							{
+								// just set the table comment to quote the original select statement
 								tbl.Comment = $"original query: {SelectedTable.ExtendedProperties["select"]}";
 							}
 						}
 
 						if (ScriptToClipboard)
 						{
+							// write the script into an in-memory stream
 							using (var ms = new MemoryStream())
 							{
+								// generate the script using the current options and writing into the memory stream
 								tbl.GenerateScript(ms, this.SelectedScriptType, this.UseTransaction, this.PrintStatusCount);
 
-								System.Windows.Clipboard.SetText(Encoding.UTF8.GetString(ms.ToArray()));
-								System.Windows.MessageBox.Show("Script Copied to Clipboard");
+								// set the clipboard text:
+								Clipboard.SetText(Encoding.UTF8.GetString(ms.ToArray()));
+
+								// confirmation message box:
+								MessageBox.Show("Script Copied to Clipboard");
 							}
 						}
 						else
@@ -503,13 +540,18 @@ namespace ScriptView
 					}
 					finally
 					{
+						// clear the wait cursor
 						this.IsBusy = false;
 					}
 				}
 			}
 		}
 
-		protected void ExecuteLoadFromXML(object param)
+		/// <summary>
+		/// load the data-set from disk (XML)
+		/// </summary>
+		/// <param name="param"></param>
+		protected void ExecuteLoad(object param)
 		{
 			var dlg = new Microsoft.Win32.OpenFileDialog();
 			dlg.Filter = "XML Files (*.XML)|*.xml";
@@ -543,7 +585,11 @@ namespace ScriptView
 			}
 		}
 
-		protected void ExecuteSaveAsXML(object param)
+		/// <summary>
+		/// save the data-set to disk (XML)
+		/// </summary>
+		/// <param name="param"></param>
+		protected void ExecuteSave(object param)
 		{
 			var dlg = new Microsoft.Win32.SaveFileDialog();
 			dlg.Filter = "XML (*.xml)|*.xml";
@@ -567,6 +613,10 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// executes <see cref="CommandText"/> against <see cref="SelectedConnection"/> and stores the data-table in the data-set.
+		/// </summary>
+		/// <param name="param"></param>
 		protected void ExecuteQuery(object param)
 		{
 			if (this.SelectedConnection != null && !string.IsNullOrEmpty(this.CommandText) && this.CommandText.ToLower().Contains("select"))
@@ -610,13 +660,74 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// sets the command-text to select all rows from the currently selected connection table
+		/// </summary>
+		/// <param name="param"></param>
 		protected void ExecuteCreateSelect(object param)
 		{
-			var tableName = SelectedConnectionTable?.TableName;
-
-			if (!string.IsNullOrEmpty(tableName))
+			if (SelectedConnectionTable != null)
 			{
-				this.CommandText = $"SELECT * FROM [{tableName}]";
+				// set the command-text 
+				this.CommandText = $"SELECT * FROM [{SelectedConnectionTable.TableName}]";
+			}
+		}
+
+		/// <summary>
+		/// downloads schema from the current connection
+		/// </summary>
+		/// <param name="param"></param>
+		protected void ExecuteGetSchema(object param)
+		{
+			// there must be a connection selected
+			if (SelectedConnection != null)
+			{
+				try
+				{
+					// set the form to busy
+					this.IsBusy = true;
+
+					// create a connection object
+					using (var conn = SelectedConnection.CreateConnection())
+					{
+						// open the connection
+						conn.Open();
+
+						// retrieve schema list:
+						var schemas = conn.GetSchema();
+
+						// enumerate the rows in the table:
+						foreach (var row in schemas.Select())
+						{
+							// get the schema name
+							var schemaName = row.Field<string>("collectionName");
+
+							// download the schema table (except "StructuredTypeMembers" this always throws an error)
+							if (!schemaName.Equals("StructuredTypeMembers"))
+							{
+								// download the schema-table:
+								var schemaTable = conn.GetSchema(schemaName);
+
+								// set the table-name to be appropriate for the database and schema-type:
+								schemaTable.TableName = SelectedConnection.DataBaseName + "." + schemaName;
+
+								// add the table to the data-set
+								Model.Tables.Add(schemaTable);
+							}
+						}
+
+						// indicate the tables list changed:
+						OnPropertyChanged(nameof(Tables));
+					}
+				}
+				catch (Exception e)
+				{
+					MessageBox.Show(e.Message);
+				}
+				finally
+				{
+					this.IsBusy = false;
+				}
 			}
 		}
 

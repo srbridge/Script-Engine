@@ -658,7 +658,8 @@ namespace DataScriptEngine
 				// varchar etc, delimited text using single quotes:
 				if (DbType.IsStringType())
 				{
-					return $"'{Value}'";
+					// any existing quotes are doubled
+					return $"'{Value.ToString().Replace("'","''")}'";
 				}
 
 				// format a date-time for sql server insert (0000-01-01 00:00:00)
@@ -908,6 +909,7 @@ namespace DataScriptEngine
 		{
 			List<DbScriptColumnSchema> columns = new List<DbScriptColumnSchema>();
 
+			
 			using (var cmd = conn.CreateCommand())
 			{
 				cmd.CommandText = $"select * from {tableName} where 1=2";

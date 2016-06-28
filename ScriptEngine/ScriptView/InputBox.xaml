@@ -1,0 +1,38 @@
+﻿<Window x:Class="ScriptView.InputBox"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ScriptView"
+        xmlns:ui="clr-namespace:Quick.MVVM"
+        mc:Ignorable="d"
+        Title="{Binding WindowTitle}" Icon="{Binding Icon}" Cursor="{Binding Cursor}" ToolTip="{Binding ToolTip}"
+        Height="150" Width="300" 
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner" Background="{Binding Background}" Foreground="{Binding Foreground}" >
+    <Window.DataContext>
+        <ui:DialogViewModel/>
+    </Window.DataContext>
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Margin"   Value="10"/>
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="MinWidth" Value="80"/>
+        </Style>
+    </Window.Resources>
+    <Border>
+        <Grid>
+            <StackPanel VerticalAlignment="Center">
+
+                <TextBlock HorizontalAlignment="Center" Text="{Binding Caption}"/>
+                <TextBox Margin="10" Text="{Binding Value}" VerticalContentAlignment="Center"/>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Command="{Binding CmdOK}" IsDefault="True">OK</Button>
+                    <Button Command="{Binding CmdCancel}" IsCancel="True">Cancel</Button>
+                </StackPanel>
+
+            </StackPanel>
+            <ui:DialogResultBinder DialogResult="{Binding DialogResult}"/>
+        </Grid>
+    </Border>
+</Window>

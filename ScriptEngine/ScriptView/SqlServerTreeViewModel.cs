@@ -61,44 +61,53 @@ namespace ScriptView
 	/// bind a hierarchal data template to this view-model. Each instance of this model represents a SERVER node.
 	/// </summary>
 	class SqlServerViewModel : TreeViewModel<SqlServerInfo, SqlDatabaseViewModel>
-	{	
+	{           
+		/// <summary>
+		/// load a single copy of the image into a static context
+		/// </summary>
+		static BitmapSource icon = ImageResources.GetImageSource("Images/server_Local_16xLG.png");
+
+		/// <summary>
+		/// construct with the info supplied by the <see cref="SqlEnvironmentViewModel.QueryNodes"/> method
+		/// </summary>
+		/// <param name="info"></param>
 		public SqlServerViewModel(SqlServerInfo info)  :base(info)
-		{													 
+		{	
+			// set the name based on whether there is an instance:												 
 			if (string.IsNullOrEmpty(info.InstanceName))
 				this.Name = info.ServerName;
 			else
 				this.Name = $"{info.ServerName}\\{info.InstanceName}";
-			try
-			{
-				SafeInvoke(() =>
-				{
-					this.Icon = new BitmapImage(new Uri("pack://application:,,,/images/server_Local_16xLG.png", UriKind.Absolute));				});
-			}
-			catch (Exception e)
-			{
-				Debug.Print(e.Message);
-			}
 
+			// assign from the static context;
+			this.Icon = icon;
 		}
 		
+		/// <summary>
+		/// override the OnNodeSelected method to set the <see cref="DataSetViewModel.SelectedSqlServer"/> property.
+		/// </summary>
+		/// <param name="sender"></param>
 		protected override void OnNodeSelected(SimpleViewModel sender)
 		{
 			if (Owner != null)
 				Owner.SelectedSqlServer = this.Info;
 
+			// activates "QueryNodes" the first time:
 			base.OnNodeSelected(sender);
 
 		}
 
 		/// <summary>
-		/// when the parent node is selected, this
+		/// the first time the node is selected, this method builds the child nodes collection
 		/// </summary>
 		protected override void QueryNodes()
 		{
 			try
 			{
+				// set to busy
 				this.IsBusy = true;
 				
+				// enumerate the child nodes using the EnumerateChildren method of the server-info object.
 				foreach (var db_info in Info.EnumerateChildren())
 				{
 					// create the database model:
@@ -110,6 +119,7 @@ namespace ScriptView
 			}
 			finally
 			{
+				// clear the busy flag
 				this.IsBusy = false;
 			}
 		}
@@ -121,30 +131,51 @@ namespace ScriptView
 	/// </summary>
 	class SqlDatabaseViewModel  : TreeViewModel<SqlDbInfo, SqlTableViewModel>
 	{
+		/// <summary>
+		/// load a single copy of the image into a static context
+		/// </summary>
+		static BitmapSource icon = ImageResources.GetImageSource("Images/database_16xLG.png");
 		
+		/// <summary>
+		/// construct the database node
+		/// </summary>
+		/// <param name="info"></param>
 		public SqlDatabaseViewModel(SqlDbInfo info) : base(info)
-		{													
+		{								
+			// set the name and icon					
 			this.Name = info.DataBaseName;
-			SafeInvoke(()=>this.Icon = new BitmapImage(new Uri("pack://application:,,,/images/database_16xLG.png", UriKind.Absolute)));
+			this.Icon = icon;
 		}
 
+		/// <summary>
+		/// update the <see cref="DataSetViewModel.SelectedConnection"/> property when this node is selected.
+		/// </summary>
+		/// <param name="sender"></param>
 		protected override void OnNodeSelected(SimpleViewModel sender)
 		{
+			// set the selected connection (assuming owner is not null)
 			if (Owner != null)
 				Owner.SelectedConnection = this.Info;
+
+			// invoke the base method:
 			base.OnNodeSelected(sender);
 
 		}
 
+		/// <summary>
+		/// implement the method to query the nodes collection
+		/// </summary>
 		protected override void QueryNodes()
 		{
 			try
 			{
+				// set to busy
 				this.IsBusy = true;
 
+				// enumerate the table information 
 				foreach (var tbl_info in Info.EnumerateChildren())
 				{
-					// create the database model:
+					// create the table view model:
 					var db_model = new SqlTableViewModel(tbl_info) { Owner = this.Owner };
 
 					// add it to the nodes collection:
@@ -153,9 +184,29 @@ namespace ScriptView
 			}
 			finally
 			{
+				// clear the busy flag:
 				this.IsBusy = false;
 			}
 		}
+
+		/// <summary>
+		/// add items to the base context menu;
+		/// </summary>
+		public override ContextMenu ContextMenu
+		{
+			get
+			{
+				// create the context-menu:
+				var mnu = base.ContextMenu;
+
+				// add the 'download schema' context-menu item.
+				mnu.Items.Add(new MenuItem() { Header = "Download Schema", Command = this.Owner.DownloadSchema });
+
+				// return the menu:
+				return mnu;
+			}
+		}
+
 	}
 
 	/// <summary>
@@ -163,15 +214,26 @@ namespace ScriptView
 	/// </summary>
 	class SqlTableViewModel	: TreeViewModel<SqlDbTableInfo, SqlColumnViewModel>
 	{
-		
+		/// <summary>
+		/// load one static copy of the bitmap
+		/// </summary>
+		public static readonly BitmapSource icon = ImageResources.GetImageSource("Images/Table_748.png");
+
+		/// <summary>
+		/// construct the table tree-view-model using the specified table information 
+		/// </summary>
+		/// <param name="info"></param>
 		public SqlTableViewModel(SqlDbTableInfo info) : base(info)
 		{
+			// set the name:
 			this.Name = info.TableName;
-			SafeInvoke(() => Icon = new BitmapImage(new Uri("pack://application:,,,/images/Table_748.png", UriKind.Absolute)));
+			this.Icon = icon;
+
 		}
 
 		protected override void OnNodeSelected(SimpleViewModel sender)
 		{
+			// set the selected table on the owning view-model;
 			if (Owner != null)
 				Owner.SelectedConnectionTable = this.Info;
 
@@ -199,12 +261,16 @@ namespace ScriptView
 			}
 		}
 
-		public ContextMenu ContextMenu
+		/// <summary>
+		/// creates the context menu for the node
+		/// </summary>
+		public override ContextMenu ContextMenu
 		{
 			get
 			{
-				var mnu = new ContextMenu();
-				mnu.Items.Add(new MenuItem() { Header = "Create Select", Command = CreateSelect });
+				var mnu = base.ContextMenu;
+					mnu.Items.Add(new MenuItem() { Header = "Select All Records", Command = CreateSelect });
+
 
 				return mnu;
 			}
@@ -217,6 +283,8 @@ namespace ScriptView
 				return new RelayCommand((o) => this.Owner.CommandText = $"SELECT * FROM [{this.Info.TableName}]");
 			}
 		}
+
+
 	}
 
 	/// <summary>
@@ -224,12 +292,21 @@ namespace ScriptView
 	/// </summary>
 	class SqlColumnViewModel : SimpleViewModel
 	{
+		/// <summary>
+		/// load one static copy of the bitmap
+		/// </summary>
+		public static readonly BitmapSource icon = ImageResources.GetImageSource("Images/column_16xLG.png");
+
+		/// <summary>
+		/// construct the view-model for the column
+		/// </summary>
+		/// <param name="info"></param>
 		public SqlColumnViewModel(SqlDbColumnInfo info)
 		{
-			this.Name = info.Description;
+			this.Name       = info.Description;
 			this.Foreground = Brushes.Blue;
+			this.Icon		= icon;
 
-			SafeInvoke(() => this.Icon = new BitmapImage(new Uri("pack://application:,,,/images/column_16xLG.png", UriKind.Absolute)));
 		}
 
 		public string Name
@@ -237,23 +314,14 @@ namespace ScriptView
 			get { return this[nameof(Name)] as string; }
 			set { this[nameof(Name)] = value; }
 		}
-
-		/// <summary>
-		/// an image-source to bind to an image for the node.
-		/// </summary>
-		public BitmapImage Icon
-		{
-			get { return this[nameof(Icon)] as BitmapImage; }
-			set { this[nameof(Icon)] = value; }
-		}
 	}
 
 	/// <summary>
 	/// reduces the amount of repetition coding the above classes.
 	/// </summary>
-	/// <typeparam name="tInfo"></typeparam>
-	/// <typeparam name="tChildViewModel"></typeparam>
-	abstract class TreeViewModel<tInfo, tChildViewModel> : TreeViewModel
+	/// <typeparam name="infoType"></typeparam>
+	/// <typeparam name="childType"></typeparam>
+	abstract class TreeViewModel<infoType, childType> : TreeViewModel
 	{
 		/// <summary>
 		/// used to trap the first OnSelected.
@@ -264,7 +332,7 @@ namespace ScriptView
 		/// construct with the required info.
 		/// </summary>
 		/// <param name="info"></param>
-		public TreeViewModel(tInfo info)
+		public TreeViewModel(infoType info)
 		{
 			this.Info = info;
 			#pragma warning disable RECS0021	// Warns about calls to virtual member functions occuring in the constructor
@@ -273,20 +341,11 @@ namespace ScriptView
 		}
 
 		/// <summary>
-		/// an image-source to bind to an image for the node.
-		/// </summary>
-		public BitmapImage Icon
-		{
-			get { return this[nameof(Icon)] as BitmapImage; }
-			set { this[nameof(Icon)] = value; }
-		}
-
-		/// <summary>
 		/// the information the node is displaying.
 		/// </summary>
-		public tInfo Info
+		public infoType Info
 		{
-			get { return (tInfo)this[nameof(Info)]; }
+			get { return (infoType)this[nameof(Info)]; }
 			set { this[nameof(Info)] = value; }
 		}
 
@@ -316,7 +375,16 @@ namespace ScriptView
 		/// <summary>
 		/// the nodes collection
 		/// </summary>
-		public ObservableCollection<tChildViewModel> Nodes { get; } = new ObservableCollection<tChildViewModel>();
+		public ObservableCollection<childType> Nodes { get; } = new ObservableCollection<childType>();
+
+		/// <summary>
+		/// context menu
+		/// </summary>
+		public virtual ContextMenu	ContextMenu {
+
+			get { return new ContextMenu(); }
+
+		}
 
 	}
 
