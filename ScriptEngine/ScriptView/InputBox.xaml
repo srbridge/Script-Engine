@@ -8,31 +8,29 @@
         mc:Ignorable="d"
         Title="{Binding WindowTitle}" Icon="{Binding Icon}" Cursor="{Binding Cursor}" ToolTip="{Binding ToolTip}"
         Height="150" Width="300" 
-        ResizeMode="NoResize" WindowStartupLocation="CenterOwner" Background="{Binding Background}" Foreground="{Binding Foreground}" >
+        ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Background="{Binding Background}" Foreground="{Binding Foreground}" >
     <Window.DataContext>
         <ui:DialogViewModel/>
     </Window.DataContext>
     <Window.Resources>
         <Style TargetType="Button">
             <Setter Property="Margin"   Value="10"/>
-            <Setter Property="Padding" Value="5"/>
+            <Setter Property="Padding"  Value="5"/>
             <Setter Property="MinWidth" Value="80"/>
         </Style>
     </Window.Resources>
     <Border>
-        <Grid>
-            <StackPanel VerticalAlignment="Center">
-
-                <TextBlock HorizontalAlignment="Center" Text="{Binding Caption}"/>
-                <TextBox Margin="10" Text="{Binding Value}" VerticalContentAlignment="Center"/>
-
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Command="{Binding CmdOK}" IsDefault="True">OK</Button>
-                    <Button Command="{Binding CmdCancel}" IsCancel="True">Cancel</Button>
-                </StackPanel>
-
+        <DockPanel>
+            <ui:DialogResultBinder Visibility="Hidden" DialogResult="{Binding DialogResult}"/>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Command="{Binding CmdOK}" IsDefault="True">OK</Button>
+                <Button Command="{Binding CmdCancel}" IsCancel="True">Cancel</Button>
             </StackPanel>
-            <ui:DialogResultBinder DialogResult="{Binding DialogResult}"/>
-        </Grid>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock HorizontalAlignment="Center" Text="{Binding Caption}"/>
+                <TextBox Margin="5" Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Stretch" VerticalContentAlignment="Center"/>
+            </StackPanel>
+            
+        </DockPanel>
     </Border>
 </Window>

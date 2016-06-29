@@ -39,7 +39,7 @@
                             <RowDefinition Height="30"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
-                        <Button  Margin="5" Command="{Binding CreateSelectStatement}" Content="Create Select"/>
+                        <Button  Margin="5" Command="{Binding AddServer}" Content="Connect Server"/>
                         <TreeView BorderThickness="0" Grid.Row="1" ItemsSource="{Binding Servers.Nodes}"  Cursor="{Binding Cursor}">
 
                             <TreeView.ItemTemplate>
@@ -83,14 +83,14 @@
                                     <ColumnDefinition Width="80"/>
                                     <ColumnDefinition/>
                                 </Grid.ColumnDefinitions>
-                                
+
                                 <!-- selected connection/table -->
                                 <StackPanel Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <TextBlock Foreground="Green" Text="{Binding SelectedSqlServer.DataSource}"/>
                                     <TextBlock Foreground="Blue" FontWeight="Bold" Text="{Binding SelectedConnection.DataBaseName}"/>
                                     <TextBlock Text="{Binding SelectedConnectionTable.Description}"/>
                                 </StackPanel>
-                                
+
                                 <Button   Margin="5" Grid.Row="1" Grid.Column="0" MaxHeight="30" Command="{Binding ExecuteSelect}" BorderBrush="DarkRed">Execute</Button>
                                 <TextBox  Margin="5" Grid.Row="1" Grid.Column="1" Padding="5"    Text="{Binding CommandText}" HorizontalContentAlignment="Left" VerticalContentAlignment="Top" FontFamily="Consolas" FontSize="12"/>
                             </Grid>
@@ -103,21 +103,34 @@
                                     <ColumnDefinition Width="95"/>
                                     <ColumnDefinition Width="110"/>
                                     <ColumnDefinition/>
+                                    <ColumnDefinition/>
                                 </Grid.ColumnDefinitions>
-                                
-                                <CheckBox Grid.Column="0" Margin="5,0,0,0" VerticalContentAlignment="Center" HorizontalAlignment="Center" Content="To Clipboard" IsChecked="{Binding ScriptToClipboard}"></CheckBox>
+
+                                <CheckBox Grid.Column="0" Margin="5,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Center" Content="To Clipboard" IsChecked="{Binding ScriptToClipboard}"></CheckBox>
                                 <ComboBox Grid.Column="1" Margin="5,5"     VerticalContentAlignment="Center" HorizontalContentAlignment="Center" ItemsSource="{Binding ScriptTypes}" SelectedItem="{Binding SelectedScriptType}"/>
                                 <Button   Grid.Column="2" Margin="5,2" Padding="5,5"  BorderThickness="1" BorderBrush="Green"   Command="{Binding GenerateScript}">
                                     <StackPanel Orientation="Horizontal">
                                         <Image Source="Images/script_32xLG.png" />
-                                        <TextBlock Margin="5,0" VerticalAlignment="Center" Text="{Binding GenerateScriptButtonText}"/>
+                                        <TextBlock  VerticalAlignment="Center" Text="{Binding GenerateScriptButtonText}"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button   Grid.Column="3" Margin="5,2" Padding="5,5"  BorderThickness="1" BorderBrush="Blue"   Command="{Binding GenerateDataSetScript}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Image Source="Images/script_32xLG.png" />
+                                        <TextBlock VerticalAlignment="Center" Text="{Binding GenerateDataSetScriptButtonText}"/>
                                     </StackPanel>
                                 </Button>
                             </Grid>
                         </Border>
 
                         <!-- data set view section -->
-                        <Border BorderBrush="LightGray" BorderThickness="0,5,0,0" Grid.Row="3">
+                        <Border BorderThickness="0,5,0,0" Grid.Row="3">
+                            <Border.BorderBrush>
+                                <RadialGradientBrush>
+                                    <GradientStop Color="Black" Offset="0"/>
+                                    <GradientStop Color="White" Offset="1"/>
+                                </RadialGradientBrush>
+                            </Border.BorderBrush>
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="25"/>
@@ -145,7 +158,7 @@
                                         <ContextMenu  ItemsSource="{Binding SelectedTableContextActions}"/>
                                     </ListBox.ContextMenu>
                                 </ListBox>
-                                
+
                                 <DataGrid Grid.Row="1" BorderThickness="0" Margin="5" Grid.Column="1" ItemsSource="{Binding SelectedTable}"/>
                                 <GridSplitter Grid.Column="0" Grid.RowSpan="2" Width="5" Background="LightGray"/>
 

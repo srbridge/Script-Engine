@@ -71,11 +71,8 @@ namespace ScriptView
 		/// </summary>
 		public string CommandText
 		{
-			get { return this[nameof(CommandText)] as string; }
-			set
-			{
-				this[nameof(CommandText)] = value;
-			}
+			get { return GetValue(() => CommandText); }
+			set { SetValue(() => CommandText, value); }
 		}
 
 		/// <summary>
@@ -83,8 +80,8 @@ namespace ScriptView
 		/// </summary>
 		public SqlEnvironmentViewModel Servers
 		{
-			get { return this[nameof(Servers)] as SqlEnvironmentViewModel; }
-			set { this[nameof(Servers)] = value; }
+			get { return GetValue(() => Servers); }
+			set { SetValue(() => Servers, value); }
 		}
 
 		/// <summary>
@@ -92,11 +89,8 @@ namespace ScriptView
 		/// </summary>
 		public SqlServerInfo SelectedSqlServer
 		{
-			get { return this[nameof(SelectedSqlServer)] as SqlServerInfo; }
-			set
-			{
-				this[nameof(SelectedSqlServer)] = value;
-			}
+			get { return GetValue(() => SelectedSqlServer); }
+			set { SetValue(() => SelectedSqlServer, value); }
 		}
 
 		/// <summary>
@@ -104,11 +98,8 @@ namespace ScriptView
 		/// </summary>
 		public SqlDbInfo SelectedConnection
 		{
-			get { return this[nameof(SelectedConnection)] as SqlDbInfo; }
-			set
-			{
-				this[nameof(SelectedConnection)] = value;
-			}
+			get { return GetValue(() => SelectedConnection); }
+			set { SetValue(() => SelectedConnection, value); }
 		}
 
 		/// <summary>
@@ -116,11 +107,8 @@ namespace ScriptView
 		/// </summary>
 		public SqlDbTableInfo SelectedConnectionTable
 		{
-			get { return this[nameof(SelectedConnectionTable)] as SqlDbTableInfo; }
-			set
-			{
-				this[nameof(SelectedConnectionTable)] = value;
-			}
+			get { return GetValue(() => SelectedConnectionTable); }
+			set { SetValue(() => SelectedConnectionTable, value); }
 		}
 
 		#endregion
@@ -176,6 +164,18 @@ namespace ScriptView
 		}
 
 		/// <summary>
+		/// command to generate the script for the entire set
+		/// </summary>
+		public ICommand GenerateDataSetScript
+		{
+			get
+			{
+				// command to script the entire data-set:
+				return new RelayCommand(ExecuteScriptDataSet);
+			}
+		}
+
+		/// <summary>
 		/// command to create the select statement to query the currently selected table
 		/// </summary>
 		public ICommand CreateSelectStatement
@@ -189,6 +189,11 @@ namespace ScriptView
 		public ICommand DownloadSchema
 		{
 			get { return new RelayCommand(() => SelectedConnection != null, ExecuteGetSchema); }
+		}
+
+		public ICommand AddServer
+		{
+			get { return new RelayCommand(ExecuteAddServer); }
 		}
 
 		#endregion
@@ -215,12 +220,8 @@ namespace ScriptView
 		/// </summary>
 		public DbScriptType SelectedScriptType
 		{
-			get { return (DbScriptType)this[nameof(SelectedScriptType)]; }
-			set
-			{
-				this[nameof(SelectedScriptType)] = value;
-				OnPropertyChanged(nameof(GenerateScriptButtonText));
-			}
+			get { return GetValue(() => SelectedScriptType); }
+			set { SetValue(() => SelectedScriptType, value); }
 		}
 
 		/// <summary>
@@ -228,11 +229,8 @@ namespace ScriptView
 		/// </summary>
 		public bool UseTransaction
 		{
-			get { return (bool)this[nameof(UseTransaction)]; }
-			set
-			{
-				this[nameof(UseTransaction)] = value;
-			}
+			get { return GetValue(() => UseTransaction); }
+			set { SetValue(() => UseTransaction, value); }
 
 		}
 
@@ -241,8 +239,8 @@ namespace ScriptView
 		/// </summary>
 		public int PrintStatusCount
 		{
-			get { return (int)this[nameof(PrintStatusCount)]; }
-			set { this[nameof(PrintStatusCount)] = value; }
+			get { return GetValue(() => PrintStatusCount); }
+			set { SetValue(() => PrintStatusCount, value); }
 		}
 
 		/// <summary>
@@ -250,8 +248,8 @@ namespace ScriptView
 		/// </summary>
 		public bool ScriptToClipboard
 		{
-			get { return (bool)this[nameof(ScriptToClipboard)]; }
-			set { this[nameof(ScriptToClipboard)] = value; }
+			get { return GetValue(() => ScriptToClipboard); }
+			set { SetValue(() => ScriptToClipboard, value); }
 		}
 
 		#endregion
@@ -437,7 +435,18 @@ namespace ScriptView
 		{
 			get
 			{
-				return $"Generate {SelectedScriptType} Script for {SelectedTable.TableName}";
+				return $"{SelectedScriptType} for {SelectedTable.TableName}";
+			}
+		}
+
+		/// <summary>
+		/// text for the generate script button
+		/// </summary>
+		public string GenerateDataSetScriptButtonText
+		{
+			get
+			{
+				return $"{SelectedScriptType} for All";
 			}
 		}
 
@@ -544,6 +553,97 @@ namespace ScriptView
 						this.IsBusy = false;
 					}
 				}
+			}
+		}
+
+		/// <summary>
+		/// scripts all tables in the set using selected options.
+		/// </summary>
+		/// <param name="param"></param>
+		protected void ExecuteScriptDataSet(object param)
+		{
+			// target for script generation
+			Stream target = null;
+
+			// set memory stream for clipboard target:
+			if (this.ScriptToClipboard)
+			{
+				target = new MemoryStream();
+			}
+			else
+			{
+				// get file-name from user:
+				var dlg = new Microsoft.Win32.SaveFileDialog();
+				dlg.Title    = "Save Data-Set Script As";
+				dlg.FileName = $"Data_{this.SelectedScriptType}.SQL";
+				dlg.Filter   = "T-SQL Script Files (*.SQL)|*.SQL";
+				var r = dlg.ShowDialog();
+				if (r.HasValue && r.Value)
+				{
+					// set the target as a file-stream:
+					target = File.OpenWrite(dlg.FileName);
+				}
+				else
+					return;
+			}
+			try
+			{
+				// enumerate the data-tables in the set:
+				foreach (DataTable tbl in this.Model.Tables)
+				{
+					// create and fill a scripting table:
+					var scriptTbl = new DbScriptTable(tbl.TableName);
+					    scriptTbl.Fill(this.Model);
+
+					// set the table-name from the script-name property:
+					if (tbl.ExtendedProperties.ContainsKey("scriptName"))
+					{
+						// allows multiple tables to output to the same destination:
+						scriptTbl.TableName = tbl.ExtendedProperties["scriptName"].ToString();
+					}
+
+					// output the script to the target stream;
+					scriptTbl.GenerateScript(target, this.SelectedScriptType, this.UseTransaction, this.PrintStatusCount);
+
+				}
+
+				if (ScriptToClipboard)
+				{
+					// set the contents of the clipboard
+					Clipboard.SetText(Encoding.UTF8.GetString(((MemoryStream)target).ToArray()));
+
+					// notification
+					MessageBox.Show("Script Copied To Clipboard");
+				}
+			}
+			catch (Exception e)
+			{
+				// show the exception message:
+				MessageBox.Show(e.Message);
+			}
+			finally
+			{
+				// cleanup stream:
+				target.Dispose();
+			}
+			
+		}
+
+		/// <summary>
+		/// adds a server 
+		/// </summary>
+		/// <param name="param"></param>
+		protected void ExecuteAddServer(object param)
+		{
+			var sn = InputBox.GetInput("Enter Server Name", "Add SQL Server");
+			if (!string.IsNullOrWhiteSpace(sn))
+			{
+				// add the node:
+				var info = new SqlServerInfo(sn, false);
+				var vmdl = new SqlServerViewModel(info) { Owner = this };
+
+				SafeInvoke(() => this.Servers.Nodes.Add(vmdl));
+				
 			}
 		}
 
@@ -740,14 +840,17 @@ namespace ScriptView
 		/// </summary>
 		public DataSet Model
 		{
-			get { return this[nameof(Model)] as DataSet; }
-			set
-			{
-				this[nameof(Model)] = value;
+			get { return GetValue(() => Model); }
+			set {
+
+				SetValue(() => Model, value); 
 
 				// these properties also change:
 				OnPropertyChanged(nameof(Tables));
 				OnPropertyChanged(nameof(SelectedTable));
+				OnPropertyChanged(nameof(GenerateScriptButtonText));
+				OnPropertyChanged(nameof(GenerateDataSetScriptButtonText));
+				OnPropertyChanged(nameof(SelectedTableContextActions));
 			}
 		}
 
@@ -756,12 +859,13 @@ namespace ScriptView
 		/// </summary>
 		public DataTable SelectedTable
 		{
-			get { return this[nameof(SelectedTable)] as DataTable; }
+			get { return GetValue(() => SelectedTable); }
 			set
 			{
-				this[nameof(SelectedTable)] = value;
+				SetValue(() => SelectedTable, value);
 
 				OnPropertyChanged(nameof(GenerateScriptButtonText));
+				OnPropertyChanged(nameof(GenerateDataSetScriptButtonText));
 				OnPropertyChanged(nameof(SelectedTableContextActions));
 
 			}

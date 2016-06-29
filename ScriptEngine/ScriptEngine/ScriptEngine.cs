@@ -104,10 +104,11 @@ namespace DataScriptEngine
 		/// <param name="type"></param>
 		/// <param name="useTransaction"></param>
 		/// <param name="printStatusGap"></param>
-		public void GenerateScript(Stream target, DbScriptType type, bool useTransaction, int printStatusGap)
+		public void GenerateScript(Stream target, DbScriptType type, bool useTransaction, int printStatusGap, bool closeStream = false)
 		{
-			using (var writer = new StreamWriter(target))
-			{
+			var writer = new StreamWriter(target);
+			try {
+			
 				writer.WriteLine($"/** Auto-Generated {type} Script. Created {DateTime.Now} by {Environment.UserName}@{Environment.UserDomainName} on {Environment.MachineName} **/");
 				writer.WriteLine($"/** {type} {this.Rows.Count} Rows. Table: {this.TableName}{(!string.IsNullOrEmpty(WhereClause) ? $" Where: {WhereClause}" : "")} **/");
 
@@ -171,6 +172,16 @@ namespace DataScriptEngine
 				if (useTransaction)
 				{
 					writer.WriteLine("COMMIT;");
+				}
+			}
+			finally
+			{
+				// flush the writer.
+				writer.Flush();
+
+				if (closeStream)
+				{
+					writer.Dispose();
 				}
 			}
 		}

@@ -124,6 +124,41 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// add items to the base context menu;
+		/// </summary>
+		public override ContextMenu ContextMenu
+		{
+			get
+			{
+				// create the context-menu:
+				var mnu = base.ContextMenu;
+
+				// add the 'download schema' context-menu item.
+				mnu.Items.Add(new MenuItem() { Header = "Add Server", Command = this.Owner.DownloadSchema });
+
+				// return the menu:
+				return mnu;
+			}
+		}
+
+		public ICommand AddServer
+		{
+			get; set;
+		}
+
+		protected virtual void OnExecAddServer(object p)
+		{
+			// open the input box to retreive the server-name:
+			var sn = InputBox.GetInput("Enter Server Name", "SQL Server Connection");
+
+			if (!string.IsNullOrEmpty(sn))
+			{
+
+			}
+
+		}
+
 	}
 
 	/// <summary>
@@ -269,8 +304,8 @@ namespace ScriptView
 			get
 			{
 				var mnu = base.ContextMenu;
-					mnu.Items.Add(new MenuItem() { Header = "Select All Records", Command = CreateSelect });
-
+					mnu.Items.Add(new MenuItem() { Header = "Create Select Query",	   Command = CreateSelect });
+				    mnu.Items.Add(new MenuItem() { Header = "Select Top 1000 Records", Command = CreateExecuteSelect });
 
 				return mnu;
 			}
@@ -284,7 +319,16 @@ namespace ScriptView
 			}
 		}
 
-
+		public ICommand CreateExecuteSelect
+		{
+			get
+			{
+				return new RelayCommand((o) => {
+					this.Owner.CommandText = $"SELECT TOP 1000 * FROM [{this.Info.TableName}]";
+					this.Owner.ExecuteSelect.Execute(null);    
+					});
+			}
+		}
 	}
 
 	/// <summary>
@@ -311,8 +355,8 @@ namespace ScriptView
 
 		public string Name
 		{
-			get { return this[nameof(Name)] as string; }
-			set { this[nameof(Name)] = value; }
+			get { return GetValue(() => Name); }
+			set { SetValue(() => Name, value); }
 		}
 	}
 
@@ -345,10 +389,10 @@ namespace ScriptView
 		/// </summary>
 		public infoType Info
 		{
-			get { return (infoType)this[nameof(Info)]; }
-			set { this[nameof(Info)] = value; }
+			get { return GetValue(() => Info); }
+			set { SetValue(() => Info, value); }
 		}
-
+										
 		/// <summary>
 		/// the owning data-set-view-model;
 		/// </summary>

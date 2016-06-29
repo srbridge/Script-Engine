@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Dynamic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
@@ -11,17 +14,137 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Dynamic;
-
 
 namespace Quick.MVVM
 {
+	/// <summary>
+	/// base class implementing <see cref="INotifyPropertyChanged"/>
+	/// </summary>
+	public class PropertyChangedBase :  DynamicObject, INotifyPropertyChanged
+	{
+		/// <summary>
+		/// event raised when the value of a property changes
+		/// </summary>
+		public event PropertyChangedEventHandler PropertyChanged;
+
+		/// <summary>
+		/// raises the <see cref="PropertyChanged"/> event with the given property-name
+		/// </summary>
+		/// <param name="name"></param>
+		protected virtual void OnPropertyChanged(string name)
+		{
+			PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+		}
+	}
+
+	/// <summary>
+	///  stores values in a dictionary, has generic get and set methods with property-changed notification.
+	/// </summary>
+	public class AutoPropertyChangedBase : PropertyChangedBase
+	{
+		/// <summary>
+		/// stores the values for the properties
+		/// </summary>
+		protected Dictionary<string, object> m_values = new Dictionary<string, object>();
+
+		/// <summary>
+		/// gets the value of the member specified in the member expression. Generic type parameters should be inferred.
+		/// </summary>
+		/// <typeparam name="T">the property type</typeparam>
+		/// <param name="memberExpression">lambda expression referring to the property invoking this method</param>
+		/// <returns>the value, or default(T)</returns>
+		public T GetValue<T>(Expression<Func<T>> memberExpression)
+		{
+			var body = memberExpression.Body as MemberExpression;
+			if (body != null)
+			{
+				object value;
+				if (m_values.TryGetValue(body.Member.Name, out value))
+				{
+					// return the value;
+					return (T)value;
+				}
+			}
+
+			// return a default:
+			return default(T);
+		}
+
+		/// <summary>
+		/// sets the value
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="memberExpression"></param>
+		/// <param name="value"></param>
+		/// <returns></returns>
+		public bool SetValue<T>(Expression<Func<T>> memberExpression, T value)
+		{
+			// is the value different from the existing?
+			if (EqualityComparer<T>.Default.Equals(value, GetValue(memberExpression)))
+			{
+				return false;
+			}
+
+			// fetch the name of the property:
+			var body = memberExpression.Body as MemberExpression;
+			if (body != null)
+			{
+				// set the value:
+				m_values[body.Member.Name] = value;
+
+				// raise the property-changed event
+				OnPropertyChanged(body.Member.Name);
+			}
+
+			// return true for changed:
+			return true;
+		}
+
+		/// <summary>
+		/// try to get the value from the dictionary dynamically
+		/// </summary>
+		/// <param name="binder"></param>
+		/// <param name="result"></param>
+		/// <returns></returns>
+		public override bool TryGetMember(GetMemberBinder binder, out object result)
+		{
+			if (m_values.TryGetValue(binder.Name, out result))
+			{
+				return true;
+			}
+			return base.TryGetMember(binder, out result);
+		}
+
+		/// <summary>
+		/// try to set a value dynamically.
+		/// </summary>
+		/// <param name="binder"></param>
+		/// <param name="value"></param>
+		/// <returns></returns>
+		public override bool TrySetMember(SetMemberBinder binder, object value)
+		{
+			object existing;
+			if (m_values.TryGetValue(binder.Name, out existing))
+			{
+				if (EqualityComparer<object>.Default.Equals(existing, value))
+				{
+					// value is the same
+					return true;
+				}
+			}
+			// set the new value, raise the event
+			m_values[binder.Name] = value;
+			OnPropertyChanged(binder.Name);
+			return true;
+		}
+	}
+
 	/// <summary>
 	/// quick and dirty implementation of the relay command pattern
 	/// </summary>
 	public class RelayCommand : ICommand
 	{
-		Func<bool>     _canExecute;
+		Func<bool> _canExecute;
 		Action<object> _execute;
 
 		/// <summary>
@@ -59,72 +182,12 @@ namespace Quick.MVVM
 	/// <summary>
 	/// very basic view-model base
 	/// </summary>
-	public class SimpleViewModel : INotifyPropertyChanged
+	public class SimpleViewModel : AutoPropertyChangedBase
 	{
 		public SimpleViewModel()
 		{
-
-			this.FontFamily = new FontFamily("Segoe UI");
-			this.FontStyle  = FontStyles.Normal;
 			this.Foreground = Brushes.Black;
 			this.Background = Brushes.White;
-			this.FontWeight = FontWeights.Normal;
-
-		}
-
-		/// <summary>
-		/// dictionary storing the values for each property 
-		/// </summary>
-		protected Dictionary<string, object> _values = new Dictionary<string, object>();
-
-		/// <summary>
-		/// strongly typed get method for the named value
-		/// </summary>
-		/// <typeparam name="T"></typeparam>
-		/// <param name="name"></param>
-		/// <returns></returns>
-		protected T Get<T>(string name)
-		{
-			object tmp = null;
-			if (_values.TryGetValue(name, out tmp))
-				return (T)tmp;
-			else
-				return default(T);
-		}
-
-		/// <summary>
-		/// gets or sets a value from the dictionary
-		/// </summary>
-		/// <param name="name"></param>
-		/// <returns></returns>
-		protected object this[string name]
-		{
-			get
-			{
-
-				object tmp = null;
-				if (_values.TryGetValue(name, out tmp))
-					return tmp;
-				else
-					return null;
-			}
-			set {
-
-				object tmp = null;
-				if (_values.TryGetValue(name, out tmp))
-				{
-					if (!Equals(tmp, value))
-					{
-						_values[name] = value;
-						OnPropertyChanged(name);
-					}
-				}
-				else
-				{
-					_values[name] = value;
-					OnPropertyChanged(name);
-				}
-			}
 		}
 
 		/// <summary>
@@ -132,7 +195,7 @@ namespace Quick.MVVM
 		/// </summary>
 		protected void RefreshAll()
 		{
-			foreach (var k in _values.Keys)
+			foreach (var k in m_values.Keys)
 			{
 				OnPropertyChanged(k);
 			}
@@ -143,8 +206,17 @@ namespace Quick.MVVM
 		/// </summary>
 		public string WindowTitle
 		{
-			get { return this[nameof(WindowTitle)] as string; }
-			set { this[nameof(WindowTitle)] = value; }
+			get { return GetValue(() => WindowTitle); }
+			set { SetValue(() => WindowTitle, value); }
+		}
+
+		/// <summary>
+		/// gets or sets status text for a status bar
+		/// </summary>
+		public string Status
+		{
+			get { return GetValue(() => Status); }
+			set { SetValue(() => Status, value); }
 		}
 
 		/// <summary>
@@ -152,8 +224,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public string ToolTip
 		{
-			get { return this[nameof(ToolTip)] as string; }
-			set { this[nameof(ToolTip)] = value; }
+			get { return GetValue(() => ToolTip); }
+			set { SetValue(() => ToolTip, value); }
 		}
 
 		/// <summary>
@@ -161,8 +233,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public Cursor Cursor
 		{
-			get { return this[nameof(Cursor)] as Cursor; }
-			set { this[nameof(Cursor)] = value; }
+			get { return GetValue(() => Cursor); }
+			set { SetValue(() => Cursor, value); }
 		}
 
 		/// <summary>
@@ -170,19 +242,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public bool IsBusy
 		{
-			get { return Get<bool>(nameof(IsBusy)); }
-			set {
-
-				this[nameof(IsBusy)] = value;
-				if (value)
-				{
-					this.Cursor = Cursors.Wait;
-				}
-				else
-				{
-					this.Cursor = Cursors.Arrow;
-				}
-			}
+			get { return GetValue(() => IsBusy); }
+			set { SetValue(() => IsBusy, value); }
 		}
 
 		/// <summary>
@@ -190,8 +251,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public Brush Foreground
 		{
-			get { return this[nameof(Foreground)] as Brush; }
-			set { this[nameof(Foreground)] = value; }
+			get { return GetValue(() => Foreground); }
+			set { SetValue(() => Foreground, value); }
 		}
 
 		/// <summary>
@@ -199,50 +260,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public Brush Background
 		{
-			get { return this[nameof(Background)] as Brush; }
-			set { this[nameof(Background)] = value; }
-		}
-
-		/// <summary>
-		/// the type of font, eg "Consolas"
-		/// </summary>
-		public FontFamily FontFamily
-		{
-			get { return this[nameof(FontFamily)] as FontFamily; }
-			set { this[nameof(FontFamily)] = value; }
-		}
-
-		/// <summary>
-		/// the weight of the font (eg, Light, Bold, etc)
-		/// </summary>
-		public FontWeight FontWeight
-		{
-			get { return (FontWeight)this[nameof(FontWeight)]; }
-			set { this[nameof(FontWeight)] = value; }
-		}
-
-		/// <summary>
-		/// the style of the font, eg italics/oblique etc.
-		/// </summary>
-		public FontStyle FontStyle
-		{
-			get { return (FontStyle)this[nameof(FontStyle)]; }
-			set { this[nameof(FontStyle)] = value; }
-		}
-
-		/// <summary>
-		/// raised whenever a property value changes
-		/// </summary>
-		public event PropertyChangedEventHandler PropertyChanged;
-
-		/// <summary>
-		/// raises the property changed event
-		/// </summary>
-		/// <param name="name"></param>
-		protected void OnPropertyChanged(string name)
-		{
-			// use the elvis operator to invoke only when subscribed:
-			PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+			get { return GetValue(() => Background); }
+			set { SetValue(() => Background, value); }
 		}
 
 		/// <summary>
@@ -250,10 +269,9 @@ namespace Quick.MVVM
 		/// </summary>
 		public BitmapSource Icon
 		{
-			get { return Get<BitmapSource>(nameof(Icon)); }
-			set { this[nameof(Icon)] = value; }
+			get { return GetValue(() => Icon); }
+			set { SetValue(() => Icon, value); }
 		}
-
 
 		#region Safe Invokation
 
@@ -290,25 +308,17 @@ namespace Quick.MVVM
 			}
 		}
 
-		/// <summary>
-		/// set to true when the model wants to close the window.
-		/// </summary>
 		public bool CloseWindow
 		{
-			get { return Get<bool>(nameof(CloseWindow)); }
-			set { this[nameof(CloseWindow)] = value; }
+			get { return GetValue(() => CloseWindow); }
+			set { SetValue(() => CloseWindow, value); }
 		}
 
-		/// <summary>
-		/// invoked by the <see cref="CmdCloseWindow"/> command.
-		/// </summary>
-		/// <param name="sender"></param>
 		protected virtual void OnCloseWindow(object sender)
 		{
-			// sets the close-window value to true
+			// sets the close-window value to true, then back to false;
 			this.CloseWindow = true;
 			this.CloseWindow = false;
-
 		}
 
 		/// <summary>
@@ -321,18 +331,104 @@ namespace Quick.MVVM
 	}
 
 	/// <summary>
+	/// basic view model
+	/// </summary>
+	/// <typeparam name="TModel"></typeparam>
+	public class SimpleViewModel<TModel> : SimpleViewModel
+	{
+		public SimpleViewModel()
+			: base()
+		{
+
+		}
+
+		public SimpleViewModel(TModel model)
+		{
+			this.Model = model;
+		}
+
+		public TModel Model
+		{
+			get { return GetValue(() => Model); }
+			set
+			{
+				if (SetValue(() => Model, value))
+				{
+					OnModelChanged(value);
+				}
+			}
+		}
+
+		protected virtual void OnModelChanged(TModel changedModel)
+		{
+
+		}
+	}
+
+	/// <summary>
+	/// view model for handling a list of objects.
+	/// </summary>
+	/// <typeparam name="TModel"></typeparam>
+	public class ListViewModel<TModel> : SimpleViewModel
+	{
+		public ListViewModel() { }
+
+		public ListViewModel(IEnumerable<TModel> list)
+			: base()
+		{
+			foreach (var item in list)
+			{
+				// adding items to observable collections must happen on the UI thread.
+				SafeInvoke(() => Items.Add(item));
+			}
+		}
+
+		/// <summary>
+		/// the selected model
+		/// </summary>
+		public TModel Selected
+		{
+			get { return GetValue(() => Selected); }
+			set { SetValue(() => Selected, value); }
+		}
+
+		/// <summary>
+		/// the list of items
+		/// </summary>
+		public ObservableCollection<TModel> Items { get; } = new ObservableCollection<TModel>();
+
+	}
+
+	/// <summary>
 	/// extends the view-model base class with dialog properties. use this with the DialogBinder to easily create modal dialogs.
 	/// </summary>
 	public class DialogViewModel : SimpleViewModel
 	{
+
+		public DialogViewModel()
+			: base()
+		{
+			// make sure dialog result is null
+			this.DialogResult = null;
+		}
+
+		/// <summary>
+		/// data-context for the dialog
+		/// </summary>
+		public SimpleViewModel DataContext
+		{
+			get { return GetValue(() => DataContext); }
+			set { SetValue(() => DataContext, value); }
+		}
+
 		/// <summary>
 		/// bind this property to the <see cref="DialogResultBinder.DialogResult"/> dependency property and the OK and Cancel commands
 		/// will set the value as is appropriate.
 		/// </summary>
 		public bool? DialogResult
 		{
-			get { return Get<bool>(nameof(DialogResult)); }
-			set { this[nameof(DialogResult)] = value;     }
+			get { return GetValue(() => DialogResult); }
+			set { SetValue(() => DialogResult, value); }
 		}
 
 		/// <summary>
@@ -340,8 +436,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public string Caption
 		{
-			get { return Get<string>(nameof(Caption)); }
-			set { this[nameof(Caption)] = value; }
+			get { return GetValue(() => Caption); }
+			set { SetValue(() => Caption, value); }
 		}
 
 		/// <summary>
@@ -349,9 +445,10 @@ namespace Quick.MVVM
 		/// </summary>
 		public string Value
 		{
-			get { return Get<string>(nameof(Value)); }
-			set {
-				this[nameof(Value)] = value;
+			get { return GetValue(() => Value); }
+			set
+			{
+				SetValue(() => Value, value);
 				this.EnableOK = !string.IsNullOrEmpty(value);
 			}
 		}
@@ -379,8 +476,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public bool EnableOK
 		{
-			get { return Get<bool>(nameof(EnableOK)); }
-			set { this[nameof(EnableOK)] = value; }
+			get { return GetValue(() => EnableOK); }
+			set { SetValue(() => EnableOK, value); }
 		}
 
 		/// <summary>
@@ -463,6 +560,9 @@ namespace Quick.MVVM
 									{
 										window.Close();
 									}
+
+									// set the property back to null;
+									s.SetValue(e.Property, null);
 								}
 							}
 						}
@@ -474,7 +574,7 @@ namespace Quick.MVVM
 	}
 
 	/// <summary>
-	/// used to allow the <see cref="SimpleViewModel"/>	to close the window(s) bound to it by binding a boolean (<see cref="SimpleViewModel.CloseWindow"/>) to the <see cref="CloseWindow"/> dependency property.
+	/// simple control to place on a <see cref="Window"/> that makes it easy to close that window.
 	/// </summary>
 	public class WindowCloser : FrameworkElement
 	{
@@ -488,112 +588,23 @@ namespace Quick.MVVM
 		public static readonly DependencyProperty CloseWindowProperty =
 			DependencyProperty.Register(nameof(CloseWindow), typeof(bool), typeof(WindowCloser), new PropertyMetadata(false, PropertyChanged));
 
-		/// <summary>
-		/// this gets invoked when the <see cref="CloseWindow"/> property is changed via binding.
-		/// </summary>
-		/// <param name="s">
-		/// the object that hosted the change (will be a <see cref="WindowCloser"/>)
-		/// </param>
-		/// <param name="e">
-		/// event arguments indicating what changed
-		/// </param>
 		static void PropertyChanged(DependencyObject s, DependencyPropertyChangedEventArgs e)
 		{
 			if ((bool)e.NewValue)
 			{
 				var wnd = Window.GetWindow(s);
-				if (wnd != null)
+				if (wnd != null && wnd.IsActive)
 				{
+					// close the window:
 					wnd.Close();
 				}
+
+				// need to reset the value of the dependency property:
+				s.SetValue(e.Property, false);
 			}
-		}
-	}
 
-	/// <summary>
-	/// base class for a tree-view-model;
-	/// </summary>
-	/// <typeparam name="T"></typeparam>
-	public class TreeViewModel : SimpleViewModel
-	{
-		public TreeViewModel()
-		{
-			this.Position = Dock.Left;
-			this.Visible = Visibility.Collapsed;
-			this.IsBusy = false;
-			this.IsExpanded = false;
-			this.IsSelected = false;
 		}
 
-		public string Name
-		{
-			get { return this[nameof(Name)] as string; }
-			set { this[nameof(Name)] = value; }
-		}
-
-		public Dock Position
-		{
-			get { return (Dock)this[nameof(Position)]; }
-			set { this[nameof(Position)] = value; }
-		}
-
-		public Visibility Visible
-		{
-			get { return (Visibility)this[nameof(Visible)]; }
-			set
-			{
-				this[nameof(Visible)] = value;
-			}
-		}
-
-		public Action<SimpleViewModel> OnSelected { get; set; }
-		public Action<SimpleViewModel> OnExpanded { get; set; }
-
-		public ICommand Show { get { return new RelayCommand(() => Visible != Visibility.Visible, (o) => this.Visible = Visibility.Visible); } }
-
-		public ICommand Hide { get { return new RelayCommand(() => Visible == Visibility.Visible, (o) => this.Visible = Visibility.Collapsed); } }
-
-		
-		public bool IsSelected
-		{
-			get { return (bool)this[nameof(IsSelected)]; }
-			set
-			{
-				this[nameof(IsSelected)] = value;
-				if (value)
-				{
-					if (OnSelected != null)
-						OnSelected.Invoke(this);
-				}
-			}
-		}
-
-		public bool IsExpanded
-		{
-			get { return (bool)this[nameof(IsExpanded)]; }
-			set
-			{
-
-				this[nameof(IsExpanded)] = value;
-				if (value)
-				{
-					if (OnExpanded != null)
-						OnExpanded.Invoke(this);
-				}
-			}
-		}
-	}
-	
-	/// <summary>
-	/// base class for a tree-view-model;
-	/// </summary>
-	/// <typeparam name="T"></typeparam>
-	public class TreeViewModel<T> : TreeViewModel
-	{
-		/// <summary>
-		/// the root nodes collection
-		/// </summary>
-		public ObservableCollection<T> Nodes { get; set; } = new ObservableCollection<T>();
 
 	}
 
@@ -624,11 +635,158 @@ namespace Quick.MVVM
 		/// <typeparam name="T"></typeparam>
 		/// <param name="window"></param>
 		/// <returns></returns>
-		public static T GetViewModel<T>(this Window window) 
-			where T:SimpleViewModel
+		public static T GetViewModel<T>(this Window window)
+			where T : SimpleViewModel
 		{
 			return window.DataContext as T;
 		}
+
+		/// <summary>
+		/// creates a compiled function to access a field
+		/// </summary>
+		/// <typeparam name="Tin"></typeparam>
+		/// <typeparam name="Tout"></typeparam>
+		/// <param name="field"></param>
+		/// <returns></returns>
+		public static Func<Tin, Tout> CompileFieldAccessor<Tin, Tout>(this FieldInfo field)
+		{
+			// define the instance parameter:
+			var instanceParam = System.Linq.Expressions.Expression.Parameter(typeof(Tin), "Instance");
+
+			// create an expression to access a field:
+			var accessField = System.Linq.Expressions.Expression.Field(instanceParam, field);
+
+			// create a lambda (add the parameter(s))
+			var lambda = System.Linq.Expressions.Expression.Lambda<Func<Tin, Tout>>(accessField, instanceParam);
+
+			// compile the field accessor and return
+			return lambda.Compile();
+		}
+
+
+		/// <summary>
+		/// extension method for easy property-changed implementation.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="handler"></param>
+		/// <param name="field"></param>
+		/// <param name="value"></param>
+		/// <param name="member"></param>
+		/// <returns></returns>
+		public static bool ChangeAndNotify<T>(this PropertyChangedEventHandler handler, ref T field, T value, Expression<Func<T>> member)
+		{
+			if (EqualityComparer<T>.Default.Equals(field, value))
+				return false;
+
+			// assign the value:
+			field = value;
+
+			// pull out the  details of the property:
+			var body = member.Body as MemberExpression;
+			if (body != null)
+			{
+				var vm = body.Expression as ConstantExpression;
+				if (vm != null)
+				{
+					var lambda = System.Linq.Expressions.Expression.Lambda(vm);
+					var func = lambda.Compile();
+					var sender = func.DynamicInvoke();
+					handler?.Invoke(sender, new PropertyChangedEventArgs(body.Member.Name));
+				}
+			}
+
+			// changed:
+			return true;
+
+		}
+
+	}
+
+	/// <summary>
+	/// base class for a tree-view-model;
+	/// </summary>
+	/// <typeparam name="T"></typeparam>
+	public class TreeViewModel : SimpleViewModel
+	{
+		public TreeViewModel()
+		{
+			this.Position = Dock.Left;
+			this.Visible = Visibility.Collapsed;
+			this.IsBusy = false;
+			this.IsExpanded = false;
+			this.IsSelected = false;
+		}
+
+		public string Name
+		{
+			get { return GetValue(() => Name); }
+			set { SetValue(() => Name, value); }
+		}
+
+		public Dock Position
+		{
+			get { return GetValue(() => Position); }
+			set { SetValue(() => Position, value); }
+		}
+
+		public Visibility Visible
+		{
+			get { return GetValue(() => Visible); }
+			set
+			{
+				SetValue(() => Visible, value);
+			}
+		}
+
+		public Action<SimpleViewModel> OnSelected { get; set; }
+		public Action<SimpleViewModel> OnExpanded { get; set; }
+
+		public ICommand Show { get { return new RelayCommand(() => Visible != Visibility.Visible, (o) => this.Visible = Visibility.Visible); } }
+
+		public ICommand Hide { get { return new RelayCommand(() => Visible == Visibility.Visible, (o) => this.Visible = Visibility.Collapsed); } }
+
+
+		public bool IsSelected
+		{
+			get { return GetValue(() => IsSelected); }
+			set
+			{
+				SetValue(() => IsSelected, value);
+				if (value)
+				{
+					if (OnSelected != null)
+						OnSelected.Invoke(this);
+				}
+			}
+		}
+
+		public bool IsExpanded
+		{
+			get { return GetValue(() => IsExpanded); }
+			set
+			{
+
+				SetValue(() => IsExpanded, value);
+				if (value)
+				{
+					if (OnExpanded != null)
+						OnExpanded.Invoke(this);
+				}
+			}
+		}
+	}
+
+	/// <summary>
+	/// base class for a tree-view-model;
+	/// </summary>
+	/// <typeparam name="T"></typeparam>
+	public class TreeViewModel<T> : TreeViewModel
+	{
+		/// <summary>
+		/// the root nodes collection
+		/// </summary>
+		public ObservableCollection<T> Nodes { get; set; } = new ObservableCollection<T>();
+
 	}
 
 	/// <summary>
@@ -646,8 +804,8 @@ namespace Quick.MVVM
 			// declare a holder for the bitmap
 			BitmapSource src = null;
 
-				// load the bitmap from resources: (this must be invoked on the UI thread)
-				Application.Current.Dispatcher.Invoke(() => src = new BitmapImage(new Uri($"pack://application:,,,/{localPath}", UriKind.Absolute)));
+			// load the bitmap from resources: (this must be invoked on the UI thread)
+			Application.Current.Dispatcher.Invoke(() => src = new BitmapImage(new Uri($"pack://application:,,,/{localPath}", UriKind.Absolute)));
 
 
 			return src;
@@ -664,10 +822,130 @@ namespace Quick.MVVM
 		/// </returns>
 		public static Image CreateImage(string localPath)
 		{
-			return new Image {
+			return new Image
+			{
 				Source = GetImageSource(localPath)
 			};
 		}
 
 	}
+
+	/// <summary>
+	/// Defines a table that has two columns with any number of rows. 
+	/// </summary>
+	/// <remarks>
+	/// This panel is designed for use in configuration/settings windows where you typically
+	/// have a pairs of "Label: SomeControl" organized in rows.
+	/// 
+	/// The width of the first column is determined by the widest item that column and the width of the 
+	/// second column is expanded to occupy all remaining space.
+	/// 
+	/// Written by: Isak Savo, isak.savo@gmail.com
+	/// Licensed under the Code Project Open License http://www.codeproject.com/info/cpol10.aspx
+	/// </remarks>
+	public class TwoColumnGrid : Panel
+	{
+		private double Column1Width;
+		private List<Double> RowHeights = new List<double>();
+
+		/// <summary>
+		/// Gets or sets the amount of spacing (in device independent pixels) between the rows.
+		/// </summary>
+		public double RowSpacing
+		{
+			get { return (double)GetValue(RowSpacingProperty); }
+			set { SetValue(RowSpacingProperty, value); }
+		}
+
+		/// <summary>
+		/// Identifies the ColumnSpacing dependency property
+		/// </summary>
+		public static readonly DependencyProperty RowSpacingProperty =
+			DependencyProperty.Register("RowSpacing", typeof(double), typeof(TwoColumnGrid),
+			new FrameworkPropertyMetadata(0.0d, FrameworkPropertyMetadataOptions.AffectsArrange | FrameworkPropertyMetadataOptions.AffectsMeasure));
+
+		/// <summary>
+		/// Gets or sets the amount of spacing (in device independent pixels) between the columns.
+		/// </summary>
+		public double ColumnSpacing
+		{
+			get { return (double)GetValue(ColumnSpacingProperty); }
+			set { SetValue(ColumnSpacingProperty, value); }
+		}
+
+		/// <summary>
+		/// Identifies the ColumnSpacing dependency property
+		/// </summary>
+		public static readonly DependencyProperty ColumnSpacingProperty =
+			DependencyProperty.Register("ColumnSpacing", typeof(double), typeof(TwoColumnGrid),
+			new FrameworkPropertyMetadata(0.0d, FrameworkPropertyMetadataOptions.AffectsArrange | FrameworkPropertyMetadataOptions.AffectsMeasure));
+
+
+		/// <summary>
+		/// Measures the size required for all the child elements in this panel.
+		/// </summary>
+		/// <param name="constraint">The size constraint given by our parent.</param>
+		/// <returns>The requested size for this panel including all children</returns>
+		protected override Size MeasureOverride(Size constraint)
+		{
+			double col1Width = 0;
+			double col2Width = 0;
+			RowHeights.Clear();
+			// First, measure all the left column children
+			for (int i = 0; i < VisualChildrenCount; i += 2)
+			{
+				var child = Children[i];
+				child.Measure(constraint);
+				col1Width = Math.Max(child.DesiredSize.Width, col1Width);
+				RowHeights.Add(child.DesiredSize.Height);
+			}
+			// Then, measure all the right column children, they get whatever remains in width
+			var newWidth = Math.Max(0, constraint.Width - col1Width - ColumnSpacing);
+			Size newConstraint = new Size(newWidth, constraint.Height);
+			for (int i = 1; i < VisualChildrenCount; i += 2)
+			{
+				var child = Children[i];
+				child.Measure(newConstraint);
+				col2Width = Math.Max(child.DesiredSize.Width, col2Width);
+				RowHeights[i / 2] = Math.Max(RowHeights[i / 2], child.DesiredSize.Height);
+			}
+
+			Column1Width = col1Width;
+			return new Size(
+				col1Width + ColumnSpacing + col2Width,
+				RowHeights.Sum() + ((RowHeights.Count - 1) * RowSpacing));
+		}
+
+		/// <summary>
+		/// Position elements and determine the final size for this panel.
+		/// </summary>
+		/// <param name="arrangeSize">The final area where child elements should be positioned.</param>
+		/// <returns>The final size required by this panel</returns>
+		protected override Size ArrangeOverride(Size arrangeSize)
+		{
+			double y = 0;
+			for (int i = 0; i < VisualChildrenCount; i++)
+			{
+				var child = Children[i];
+				double height = RowHeights[i / 2];
+				if (i % 2 == 0)
+				{
+					// Left child
+					var r = new Rect(0, y, Column1Width, height);
+					child.Arrange(r);
+				}
+				else
+				{
+					// Right child
+					var r = new Rect(Column1Width + ColumnSpacing, y, arrangeSize.Width - Column1Width - ColumnSpacing, height);
+					child.Arrange(r);
+					y += height;
+					y += RowSpacing;
+				}
+			}
+			return base.ArrangeOverride(arrangeSize);
+		}
+
+	}
+
 }
