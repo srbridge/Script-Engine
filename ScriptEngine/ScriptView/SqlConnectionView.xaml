@@ -1,0 +1,71 @@
+﻿<Window x:Class="ScriptView.SqlConnectionView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ScriptView"
+        xmlns:mv="clr-namespace:Quick.MVVM"
+        mc:Ignorable="d"
+        Title="Connect to Server" WindowStartupLocation="CenterScreen" ResizeMode="NoResize" SizeToContent="WidthAndHeight" Icon="SQLServer_5728.ico" WindowStyle="ThreeDBorderWindow" FontSize="12">
+    <Window.DataContext>
+        <mv:DialogViewModel EnableOK="True"/>
+    </Window.DataContext>
+    <Window.Resources>
+
+        <local:NotBooleanToVisibiltyConverter x:Key="NotBooleanToVisibiltyConverter"/>
+
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+
+        <Style TargetType="{x:Type Button}">
+            <Setter Property="Width" Value="80"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+
+        <Style TargetType="{x:Type PasswordBox}">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Padding" Value="2"/>
+        </Style>
+        <Style TargetType="{x:Type TextBox}">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="MinWidth" Value="200"/>
+            <Setter Property="Padding" Value="2"/>
+        </Style>
+        <Style TargetType="{x:Type TextBlock}">
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
+    </Window.Resources>
+    <Grid Margin="3">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="120" />
+            <ColumnDefinition/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition/>
+            <RowDefinition/>
+            <RowDefinition/>
+            <RowDefinition/>
+            <RowDefinition/>
+        </Grid.RowDefinitions>
+        <mv:DialogResultBinder DialogResult="{Binding DialogResult}" Visibility="Hidden"/>
+        <TextBlock     Grid.Row="0">Server Name:</TextBlock>
+        <TextBlock     Grid.Row="1">Authentication:</TextBlock>
+        <TextBlock     Grid.Row="2">Login:</TextBlock>
+        <TextBlock     Grid.Row="3">Password:</TextBlock>
+        <TextBox       Grid.Row="0" Grid.Column="1" Text="{Binding ServerName}"/>
+        <CheckBox      Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" Margin="5" IsChecked="{Binding UseIntegratedSecurity}">Use Integrated Security</CheckBox>
+        <TextBox       Grid.Row="2" Grid.Column="1" Text="{Binding UID}" Visibility="{Binding UseIntegratedSecurity, Converter={StaticResource NotBooleanToVisibiltyConverter}}"/>
+        <PasswordBox   Grid.Row="3" Grid.Column="1" PasswordChanged="PasswordBox_PasswordChanged" VerticalAlignment="Center" Visibility="{Binding UseIntegratedSecurity, Converter={StaticResource NotBooleanToVisibiltyConverter}}"/>
+        <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button IsDefault="True" Command="{Binding CmdOK}">Connect</Button>
+            <Button IsCancel="True"  Command="{Binding CmdCancel}">Cancel</Button>
+        </StackPanel>
+    </Grid>
+</Window>

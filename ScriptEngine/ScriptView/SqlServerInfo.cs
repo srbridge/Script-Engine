@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
+using System.Security;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -12,7 +13,7 @@ namespace ScriptView
 	/// <summary>
 	/// information about an SQL server instance.
 	/// </summary>
-	public class SqlServerInfo :  IEquatable<SqlServerInfo>
+	public class SqlServerInfo : IEquatable<SqlServerInfo>
 	{
 		#region Constructor
 
@@ -65,6 +66,15 @@ namespace ScriptView
 
 		#region Properties
 
+		public bool UseIntegratedSecurity { get; set; } = true;
+
+		public string UID { get; set; }
+
+		public SecureString PWD { get; set; }
+
+		public int ConnectionTimeout { get; set; } = 1;
+
+
 		/// <summary>
 		/// gets a connection string for this SQL server
 		/// </summary>
@@ -73,7 +83,20 @@ namespace ScriptView
 
 			get
 			{
-				return $"Data Source ={DataSource};Integrated Security=True;Connection Timeout=1";
+				if (UseIntegratedSecurity)
+					return $"Data Source ={DataSource};Integrated Security=True;Connection Timeout={ConnectionTimeout}";
+				else
+					return $"Data Source ={DataSource};Connection Timeout={ConnectionTimeout}";
+			}
+		}
+
+		public SqlConnection CreateConnection()
+		{
+			if (UseIntegratedSecurity)
+				return new SqlConnection(ConnectionString);
+			else
+			{
+				return new SqlConnection(ConnectionString, new SqlCredential(UID, PWD));
 			}
 		}
 
@@ -153,7 +176,7 @@ namespace ScriptView
 		public IEnumerable<SqlDbInfo> EnumerateChildren(bool fetchDetails = false)
 		{
 			// create a new connection using the connection string:
-			using (var conn = new SqlConnection(this.ConnectionString))
+			using (var conn = CreateConnection())
 			{
 				// open and query for databases:
 				conn.Open();
@@ -168,7 +191,7 @@ namespace ScriptView
 					SqlDbInfo info = null;
 					try
 					{
-						info = new SqlDbInfo(ServerName, InstanceName, row.Field<string>("database_name"), fetchDetails);
+						info = new SqlDbInfo(this, row.Field<string>("database_name"), fetchDetails);
 					}
 					catch(Exception e) {
 
@@ -270,6 +293,23 @@ namespace ScriptView
 		public SqlDbInfo(SqlServerInfo serverInfo, int idx)
 			: this(serverInfo.ServerName, serverInfo.InstanceName, serverInfo.Databases[idx].DataBaseName)
 		{
+			this.UseIntegratedSecurity = serverInfo.UseIntegratedSecurity;
+			this.PWD = serverInfo.PWD;
+			this.UID = serverInfo.UID;
+
+		}
+
+		/// <summary>
+		/// attach to one of the databases in the specified <see cref="SqlServerInfo"/>
+		/// </summary>
+		/// <param name="serverInfo"></param>
+		/// <param name="idx"></param>
+		public SqlDbInfo(SqlServerInfo serverInfo, string dbName, bool fetchDetails = false)
+			: this(serverInfo.ServerName, serverInfo.InstanceName, dbName, fetchDetails)
+		{
+			this.UseIntegratedSecurity = serverInfo.UseIntegratedSecurity;
+			this.PWD = serverInfo.PWD;
+			this.UID = serverInfo.UID;
 
 		}
 
@@ -298,7 +338,14 @@ namespace ScriptView
 		/// </summary>
 		protected string ConnectionString
 		{
-			get { return $"Data Source={DataSource};Initial Catalog={DataBaseName};Integrated Security=True; Connection Timeout={ConnectionTimeout}"; }
+			get {
+
+				if (UseIntegratedSecurity)
+					return $"Data Source={DataSource};Initial Catalog={DataBaseName};Integrated Security=True;Connection Timeout={ConnectionTimeout}";
+				else
+					return $"Data Source={DataSource};Initial Catalog={DataBaseName};Connection Timeout={ConnectionTimeout}";
+
+			}
 		}
 
 		/// <summary>
@@ -320,6 +367,11 @@ namespace ScriptView
 		/// gets or sets the connection timeout part of the connection string.
 		/// </summary>
 		public int ConnectionTimeout { get; set; } = 2;
+
+		public bool UseIntegratedSecurity { get; set; } = true;
+
+		public string UID { get; set; }
+		public SecureString PWD { get; set; }
 
 		/// <summary>
 		/// gets the data source part of the connection string.
@@ -370,7 +422,10 @@ namespace ScriptView
 		/// <returns></returns>
 		public SqlConnection CreateConnection()
 		{
-			return new SqlConnection(this.ConnectionString);
+			if (UseIntegratedSecurity)
+				return new SqlConnection(this.ConnectionString);
+			else
+				return new SqlConnection(this.ConnectionString, new SqlCredential(this.UID, this.PWD));
 		}
 
 		/// <summary>
@@ -381,7 +436,7 @@ namespace ScriptView
 		public IEnumerable<SqlDbTableInfo> EnumerateChildren(bool fetchDetails = false)
 		{
 			// open a connection
-			using (var conn = new SqlConnection(this.ConnectionString))
+			using (var conn = CreateConnection())
 			{
 				try
 				{

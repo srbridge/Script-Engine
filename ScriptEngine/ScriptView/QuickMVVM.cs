@@ -6,14 +6,19 @@ using System.ComponentModel;
 using System.Dynamic;
 using System.Linq;
 using System.Linq.Expressions;
+using Expressions = System.Linq.Expressions;
+
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-using System.Windows;
+using WinExpression = System.Windows.Expression;
+
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows;
+using System.Runtime.CompilerServices;
 
 namespace Quick.MVVM
 {
@@ -101,6 +106,35 @@ namespace Quick.MVVM
 		}
 
 		/// <summary>
+		/// get-value using caller-member-name (slightly faster) but no generic-type-inference available.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="memberName"></param>
+		/// <returns></returns>
+		public T GetValue<T>([CallerMemberName] string memberName = null)
+		{
+			object value;
+			if (m_values.TryGetValue(memberName, out value))
+			{
+				return (T)value;
+			}
+
+			return default(T);
+		}
+
+		public bool SetValue<T>(T value, [CallerMemberName] string memberName = null)
+		{
+			// is the value different from the existing?
+			if (EqualityComparer<T>.Default.Equals(value, GetValue<T>(memberName)))
+			{
+				return false;
+			}
+			m_values[memberName]  = value;
+			OnPropertyChanged(memberName);
+			return true;
+		}
+
+		/// <summary>
 		/// try to get the value from the dictionary dynamically
 		/// </summary>
 		/// <param name="binder"></param>
@@ -182,9 +216,9 @@ namespace Quick.MVVM
 	/// <summary>
 	/// very basic view-model base
 	/// </summary>
-	public class SimpleViewModel : AutoPropertyChangedBase
+	public class ViewModelBase : AutoPropertyChangedBase
 	{
-		public SimpleViewModel()
+		public ViewModelBase()
 		{
 			this.Foreground = Brushes.Black;
 			this.Background = Brushes.White;
@@ -206,8 +240,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public string WindowTitle
 		{
-			get { return GetValue(() => WindowTitle); }
-			set { SetValue(() => WindowTitle, value); }
+			get { return GetValue(()=>WindowTitle); }
+			set { SetValue(value); }
 		}
 
 		/// <summary>
@@ -233,8 +267,8 @@ namespace Quick.MVVM
 		/// </summary>
 		public Cursor Cursor
 		{
-			get { return GetValue(() => Cursor); }
-			set { SetValue(() => Cursor, value); }
+			get { return GetValue<Cursor>(); }
+			set { SetValue(value); }
 		}
 
 		/// <summary>
@@ -243,7 +277,15 @@ namespace Quick.MVVM
 		public bool IsBusy
 		{
 			get { return GetValue(() => IsBusy); }
-			set { SetValue(() => IsBusy, value); }
+			set {
+				if (SetValue(value))
+				{
+					if (value)
+						this.Cursor = Cursors.Wait;
+					else
+						this.Cursor = Cursors.Arrow;
+				}
+			}
 		}
 
 		/// <summary>
@@ -328,25 +370,101 @@ namespace Quick.MVVM
 		{
 			get { return new RelayCommand(OnCloseWindow); }
 		}
+
+		/// <summary>
+		/// retrieves the contents of the clipboard as rows and columns of text data.
+		/// </summary>
+		/// <returns></returns>
+		public List<string[]> GetClipboardData()
+		{
+			// create a list of string arrays: each row is an array of strings
+			var rows = new List<string[]>();
+
+			// check the clipboard contains CSV data
+			if (Clipboard.ContainsData(DataFormats.CommaSeparatedValue))
+			{
+				// fetch a block of csv data as a string from the clipboard
+				var csv = Clipboard.GetText(TextDataFormat.CommaSeparatedValue);
+
+				// seperate the text into rows
+				foreach (var r in csv.Split(new[] { '\r','\n' }, StringSplitOptions.RemoveEmptyEntries))
+				{
+					// check the row has some length
+					if (r.Trim().Length > 0)
+						// split the row using CSV rules
+						rows.Add(SplitCSV(r).ToArray());
+				}
+			}
+			return rows;
+		}
+
+		/// <summary>
+		/// takes a single row of data (comma seperated) and return each column as an Enumerable (uses ' or " as text delimiters)
+		/// </summary>
+		/// <param name="row">the comma seperated text row</param>
+		/// <returns>
+		/// an IEnumerable containing the values
+		/// </returns>
+		public IEnumerable<string> SplitCSV(string row)
+		{
+			var inQuote = false;
+			var current = new StringBuilder();
+
+			foreach (var c in row)
+			{
+				if (c == '\'' || c == '\"')
+				{
+					inQuote = !inQuote;
+				}
+				else
+				{
+					if (inQuote)
+						current.Append(c);	// always append all characters when inside quotations
+					else
+					{
+						// whenever we hit a comma, yield the contents of the string builder, then clear it
+						if (c == ',')
+						{
+							yield return current.ToString().Trim();
+							current.Clear();
+						}
+						else
+						{
+							current.Append(c);
+						}
+					}
+				}
+			}
+
+			// yield any characters remaining in the buffer
+			yield return current.ToString().Trim();
+		}
 	}
 
 	/// <summary>
 	/// basic view model
 	/// </summary>
 	/// <typeparam name="TModel"></typeparam>
-	public class SimpleViewModel<TModel> : SimpleViewModel
+	public class ViewModelBase<TModel> : ViewModelBase
 	{
-		public SimpleViewModel()
+		public ViewModelBase()
 			: base()
 		{
 
 		}
 
-		public SimpleViewModel(TModel model)
+		/// <summary>
+		/// construct and pass in the model
+		/// </summary>
+		/// <param name="model"></param>
+		public ViewModelBase(TModel model)
 		{
 			this.Model = model;
 		}
 
+		/// <summary>
+		/// property for the model the view-model is displaying
+		/// </summary>
 		public TModel Model
 		{
 			get { return GetValue(() => Model); }
@@ -359,8 +477,147 @@ namespace Quick.MVVM
 			}
 		}
 
+		/// <summary>
+		/// method called whenever a new model is set.
+		/// </summary>
+		/// <param name="changedModel">
+		/// the new model
+		/// </param>
 		protected virtual void OnModelChanged(TModel changedModel)
 		{
+
+		}
+
+		/// <summary>
+		/// gets the value of the <see cref="Model"/> property specified in the member expression. Generic type parameters should be inferred.
+		/// </summary>
+		/// <typeparam name="T">the property type</typeparam>
+		/// <param name="memberExpression">lambda expression referring to the property invoking this method</param>
+		/// <returns>the value, or default(T)</returns>
+		public T GetModelValue<T>(Expression<Func<T>> memberExpression)
+		{
+			var body = memberExpression.Body as MemberExpression;
+			if (body != null)
+			{
+				// fetch/create the getter:
+				var getter = GetGetter<T>(memberExpression);
+				if (getter != null)
+				{
+					// invokes the getter to return the value;
+					return getter.Invoke(Model);
+				}
+
+			}
+
+			// return a default:
+			return default(T);
+		}
+
+		/// <summary>
+		/// sets a value on the model, raising <see cref="PropertyChangedBase.PropertyChanged"/> if the value is changing
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="memberExpression"></param>
+		/// <param name="value"></param>
+		/// <returns></returns>
+		public bool SetModelValue<T>(Expression<Func<T>> memberExpression, T value)
+		{
+			var getter = GetGetter(memberExpression);
+			var setter = GetSetter(memberExpression);
+
+			if (EqualityComparer<T>.Default.Equals(value, getter.Invoke(Model)))
+			{
+				return false;
+			}
+
+			var body = memberExpression.Body as MemberExpression;
+			if (body != null)
+			{
+				// set the value on the model
+				setter.Invoke(Model, value);
+
+				// raise the event:
+				OnPropertyChanged(body.Member.Name);
+			}
+
+			return true;
+		}
+
+		/// <summary>
+		/// caches and returns a compiled getter to retrieve the property of the <see cref="Model"/> as specified by the member expression
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="member"></param>
+		/// <returns></returns>
+		Func<TModel, T> GetGetter<T>(Expression<Func<T>> member)
+		{
+			// the compiled delegate:
+			Func<TModel, T> func = null;
+
+			// get the name of the property to retrieve from the model
+			var name = ((MemberExpression)member.Body).Member.Name;
+
+			// define a key to use for this getter in the dictionary
+			var key  = $"get_{name}";
+
+			// check the cache: is the getter already compiled?
+			object f;
+			if (m_values.TryGetValue(key, out f))
+			{
+				// retrieve the existing getter
+				func = f as Func<TModel, T>;
+			}
+			if (func == null)
+			{
+				// compile a new getter:
+				func = typeof(TModel).GetProperty(name).CompileGetter<TModel, T>();
+				if (func != null)
+				{
+					// add into the dictionary:
+					m_values[key] = func;
+				}
+			}
+
+			// return the getter:
+			return func;
+
+		}
+
+		/// <summary>
+		/// caches and returns a compiled setter that sets the property of the model that has the same name as the member-expression.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="member"></param>
+		/// <returns></returns>
+		Action<TModel, T> GetSetter<T>(Expression<Func<T>> member)
+		{
+			// declare the setter:
+			Action<TModel, T> func = null;
+
+			// get the property name and define an access key
+			var name = ((MemberExpression)member.Body).Member.Name;
+			var key = $"set_{name}";
+
+
+			// try and fetch the pre-compiled setter from cache:
+			object f;
+			if (m_values.TryGetValue(key, out f))
+			{
+				// cast:
+				func = f as Action<TModel, T>;
+			}
+			if (func == null)
+			{
+				// compile a setter:
+				func = typeof(TModel).GetProperty(name).CompileSetter<TModel, T>();
+				if (func != null)
+				{
+					// add into the dictionary:
+					m_values[key] = func;
+				}
+			}
+
+			return func;
 
 		}
 	}
@@ -369,12 +626,20 @@ namespace Quick.MVVM
 	/// view model for handling a list of objects.
 	/// </summary>
 	/// <typeparam name="TModel"></typeparam>
-	public class ListViewModel<TModel> : SimpleViewModel
+	public class ListViewModel<TModel> : ViewModelBase
 	{
-		public ListViewModel() { }
+		public ListViewModel() 
+			:base()
+		{
+			#pragma warning disable RECS0021
+			this.Create = new RelayCommand(CanCreate, OnExecCreate);
+			this.Delete = new RelayCommand(CanDelete, OnExecDelete);
+			this.Adjust = new RelayCommand(CanAdjust, OnExecAdjust);
+			#pragma warning restore RECS0021
+		}
 
 		public ListViewModel(IEnumerable<TModel> list)
-			: base()
+			: this()
 		{
 			foreach (var item in list)
 			{
@@ -382,6 +647,34 @@ namespace Quick.MVVM
 				SafeInvoke(() => Items.Add(item));
 			}
 		}
+
+		public ListViewModel(List<TModel> list)
+			: this()
+		{
+			foreach (var item in list)
+			{
+				// adding items to observable collections must happen on the UI thread.
+				SafeInvoke(() => Items.Add(item));
+			}
+
+			// handle the collection changed event:
+			this.Items.CollectionChanged += (s, e) => {
+
+				switch (e.Action)
+				{
+					case NotifyCollectionChangedAction.Add:
+						foreach (TModel item in e.NewItems)
+							list.Add(item);
+						break;
+					case NotifyCollectionChangedAction.Remove:
+						foreach (TModel item in e.OldItems)
+							list.Remove(item);
+						break;
+				}
+
+			};
+		}
+
 
 		/// <summary>
 		/// the selected model
@@ -393,16 +686,75 @@ namespace Quick.MVVM
 		}
 
 		/// <summary>
+		/// calculates if an item is selected.
+		/// </summary>
+		public bool IsSelected
+		{
+			get {  return !object.Equals(Selected, default(TModel)); }
+		}
+
+		/// <summary>
 		/// the list of items
 		/// </summary>
 		public ObservableCollection<TModel> Items { get; } = new ObservableCollection<TModel>();
 
+		/// <summary>
+		/// create or "add" command
+		/// </summary>
+		public ICommand Create { get; protected set; }
+
+		/// <summary>
+		/// delete or "remove" command
+		/// </summary>
+		public ICommand Delete { get; protected set; }
+
+		/// <summary>
+		/// adjust or "edit" command
+		/// </summary>
+		public ICommand Adjust { get; protected set; }
+
+		/// <summary>
+		/// determines if a new record can be added (hint: always true)
+		/// </summary>
+		/// <returns></returns>
+		protected virtual bool CanCreate() { return true; }
+
+		/// <summary>
+		/// determines if a record can be deleted (requires that a record be selected)
+		/// </summary>
+		/// <returns></returns>
+		protected virtual bool CanDelete() { return IsSelected; }
+
+		/// <summary>
+		/// determines if a record can be adjusted (requires that a record be selected)
+		/// </summary>
+		/// <returns></returns>
+		protected virtual bool CanAdjust() { return IsSelected; }
+
+		/// <summary>
+		/// method invoked when creating a new entry to be added to the <see cref="Items"/> collection
+		/// </summary>
+		/// <param name="p"></param>
+		protected virtual void OnExecCreate(object p) { }
+
+		/// <summary>
+		/// method invoked when deletin the currently selected item
+		/// </summary>
+		/// <param name="p"></param>
+		protected virtual void OnExecDelete(object p) { }
+
+		/// <summary>
+		/// method invoked when editing the currently selected item
+		/// </summary>
+		/// <param name="p"></param>
+		protected virtual void OnExecAdjust(object p) { }
+
 	}
 
 	/// <summary>
-	/// extends the view-model base class with dialog properties. use this with the DialogBinder to easily create modal dialogs.
+	/// extends the view-model base class with dialog properties. use this with the <see cref="DialogResultBinder"/> to easily create modal dialogs.
 	/// </summary>
-	public class DialogViewModel : SimpleViewModel
+	public class DialogViewModel : ViewModelBase
 	{
 
 		public DialogViewModel()
@@ -412,10 +764,13 @@ namespace Quick.MVVM
 			this.DialogResult = null;
 		}
 
+		public bool ValueRequiredBeforeOK { get; set; }
+
+
 		/// <summary>
 		/// data-context for the dialog
 		/// </summary>
-		public SimpleViewModel DataContext
+		public ViewModelBase DataContext
 		{
 			get { return GetValue(() => DataContext); }
 			set { SetValue(() => DataContext, value); }
@@ -449,7 +804,10 @@ namespace Quick.MVVM
 			set
 			{
 				SetValue(() => Value, value);
-				this.EnableOK = !string.IsNullOrEmpty(value);
+				if (ValueRequiredBeforeOK)
+				{
+					this.EnableOK = !string.IsNullOrEmpty(value);
+				}
 			}
 		}
 
@@ -495,6 +853,175 @@ namespace Quick.MVVM
 		{
 			get { return new RelayCommand(OnCancel); }
 		}
+	}
+
+	/// <summary>
+	/// extends the dialog view model to add a strongly-typed model
+	/// </summary>
+	/// <typeparam name="TModel"></typeparam>
+	public class DialogViewModel<TModel> : DialogViewModel
+	{
+
+		/// <summary>
+		/// property for the model the view-model is displaying
+		/// </summary>
+		public TModel Model
+		{
+			get { return GetValue(() => Model); }
+			set
+			{
+				if (SetValue(() => Model, value))
+				{
+					OnModelChanged(value);
+				}
+			}
+		}
+
+		/// <summary>
+		/// method called whenever a new model is set.
+		/// </summary>
+		/// <param name="changedModel">
+		/// the new model
+		/// </param>
+		protected virtual void OnModelChanged(TModel changedModel)
+		{
+
+		}
+
+		/// <summary>
+		/// gets the value of the <see cref="Model"/> property specified in the member expression. Generic type parameters should be inferred.
+		/// </summary>
+		/// <typeparam name="T">the property type</typeparam>
+		/// <param name="memberExpression">lambda expression referring to the property invoking this method</param>
+		/// <returns>the value, or default(T)</returns>
+		public T GetModelValue<T>(Expression<Func<T>> memberExpression)
+		{
+			var body = memberExpression.Body as MemberExpression;
+			if (body != null)
+			{
+				// fetch/create the getter:
+				var getter = GetGetter<T>(memberExpression);
+				if (getter != null)
+				{
+					// invokes the getter to return the value;
+					return getter.Invoke(Model);
+				}
+
+			}
+
+			// return a default:
+			return default(T);
+		}
+
+		/// <summary>
+		/// sets a value on the model, raising <see cref="PropertyChangedBase.PropertyChanged"/> if the value is changing
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="memberExpression"></param>
+		/// <param name="value"></param>
+		/// <returns></returns>
+		public bool SetModelValue<T>(Expression<Func<T>> memberExpression, T value)
+		{
+			var getter = GetGetter(memberExpression);
+			var setter = GetSetter(memberExpression);
+
+			if (EqualityComparer<T>.Default.Equals(value, getter.Invoke(Model)))
+			{
+				return false;
+			}
+
+			var body = memberExpression.Body as MemberExpression;
+			if (body != null)
+			{
+				// set the value on the model
+				setter.Invoke(Model, value);
+
+				// raise the event:
+				OnPropertyChanged(body.Member.Name);
+			}
+
+			return true;
+		}
+
+		/// <summary>
+		/// caches and returns a compiled getter to retrieve the property of the <see cref="Model"/> as specified by the member expression
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="member"></param>
+		/// <returns></returns>
+		Func<TModel, T> GetGetter<T>(Expression<Func<T>> member)
+		{
+			// the compiled delegate:
+			Func<TModel, T> func = null;
+
+			// get the name of the property to retrieve from the model
+			var name = ((MemberExpression)member.Body).Member.Name;
+
+			// define a key to use for this getter in the dictionary
+			var key = $"get_{name}";
+
+			// check the cache: is the getter already compiled?
+			object f;
+			if (m_values.TryGetValue(key, out f))
+			{
+				// retrieve the existing getter
+				func = f as Func<TModel, T>;
+			}
+			if (func == null)
+			{
+				// compile a new getter:
+				func = typeof(TModel).GetProperty(name).CompileGetter<TModel, T>();
+				if (func != null)
+				{
+					// add into the dictionary:
+					m_values[key] = func;
+				}
+			}
+
+			// return the getter:
+			return func;
+
+		}
+
+		/// <summary>
+		/// caches and returns a compiled setter that sets the property of the model that has the same name as the member-expression.
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="member"></param>
+		/// <returns></returns>
+		Action<TModel, T> GetSetter<T>(Expression<Func<T>> member)
+		{
+			// declare the setter:
+			Action<TModel, T> func = null;
+
+			// get the property name and define an access key
+			var name = ((MemberExpression)member.Body).Member.Name;
+			var key = $"set_{name}";
+
+
+			// try and fetch the pre-compiled setter from cache:
+			object f;
+			if (m_values.TryGetValue(key, out f))
+			{
+				// cast:
+				func = f as Action<TModel, T>;
+			}
+			if (func == null)
+			{
+				// compile a setter:
+				func = typeof(TModel).GetProperty(name).CompileSetter<TModel, T>();
+				if (func != null)
+				{
+					// add into the dictionary:
+					m_values[key] = func;
+				}
+			}
+
+			return func;
+
+		}
+
+
 	}
 
 	/// <summary>
@@ -636,7 +1163,7 @@ namespace Quick.MVVM
 		/// <param name="window"></param>
 		/// <returns></returns>
 		public static T GetViewModel<T>(this Window window)
-			where T : SimpleViewModel
+			where T : ViewModelBase
 		{
 			return window.DataContext as T;
 		}
@@ -651,13 +1178,13 @@ namespace Quick.MVVM
 		public static Func<Tin, Tout> CompileFieldAccessor<Tin, Tout>(this FieldInfo field)
 		{
 			// define the instance parameter:
-			var instanceParam = System.Linq.Expressions.Expression.Parameter(typeof(Tin), "Instance");
+			var instanceParam = Expressions.Expression.Parameter(typeof(Tin), "Instance");
 
 			// create an expression to access a field:
-			var accessField = System.Linq.Expressions.Expression.Field(instanceParam, field);
+			var accessField = Expressions.Expression.Field(instanceParam, field);
 
 			// create a lambda (add the parameter(s))
-			var lambda = System.Linq.Expressions.Expression.Lambda<Func<Tin, Tout>>(accessField, instanceParam);
+			var lambda = Expressions.Expression.Lambda<Func<Tin, Tout>>(accessField, instanceParam);
 
 			// compile the field accessor and return
 			return lambda.Compile();
@@ -673,7 +1200,7 @@ namespace Quick.MVVM
 		/// <param name="value"></param>
 		/// <param name="member"></param>
 		/// <returns></returns>
-		public static bool ChangeAndNotify<T>(this PropertyChangedEventHandler handler, ref T field, T value, Expression<Func<T>> member)
+		public static bool ChangeAndNotify<T>(this PropertyChangedEventHandler handler, ref T field, T value, [CallerMemberName] string propertyName = null)
 		{
 			if (EqualityComparer<T>.Default.Equals(field, value))
 				return false;
@@ -681,32 +1208,80 @@ namespace Quick.MVVM
 			// assign the value:
 			field = value;
 
-			// pull out the  details of the property:
-			var body = member.Body as MemberExpression;
-			if (body != null)
-			{
-				var vm = body.Expression as ConstantExpression;
-				if (vm != null)
-				{
-					var lambda = System.Linq.Expressions.Expression.Lambda(vm);
-					var func = lambda.Compile();
-					var sender = func.DynamicInvoke();
-					handler?.Invoke(sender, new PropertyChangedEventArgs(body.Member.Name));
-				}
-			}
-
+			// invoke the property:
+			handler?.Invoke(handler.Target, new PropertyChangedEventArgs(propertyName));
+				
 			// changed:
 			return true;
 
 		}
 
+
+
+		/// <summary>
+		/// creates a delegate that can write to the specified property
+		/// </summary>
+		/// <typeparam name="TInstance"></typeparam>
+		/// <typeparam name="TValue"></typeparam>
+		/// <param name="propertyName"></param>
+		/// <returns></returns>
+		public static Action<TInstance, TValue> CompileSetter<TInstance, TValue>(this PropertyInfo property)
+		{
+			if (property.CanWrite)
+			{
+				// create a parameter for the expression: this represents the instance (the object who's property is to be set)
+				var instance = Expressions.Expression.Parameter(typeof(TInstance), "Instance");
+
+				// create a parameter for the expression: this represents the value (the value to be set on the property)
+				var value = Expressions.Expression.Parameter(typeof(TValue), "value");
+
+				// create an expression to convert the object value to the correct type for the expression:
+				var convert = Expressions.Expression.Convert(value, property.PropertyType);
+
+				// create a lambda expression that sets the property value:
+				var lambda = Expressions.Expression.Lambda<Action<TInstance, TValue>>(Expressions.Expression.Assign(Expressions.Expression.Property(instance, property), convert), instance, value);
+
+				// compile the expression to a delegate and return:
+				return lambda.Compile();
+			}
+			else
+				throw new ArgumentException("Property is Read Only!");
+		}
+
+		/// <summary>
+		/// compiles a lambda expression that gets the value of the specified property.
+		/// </summary>
+		/// <typeparam name="TInput">
+		/// the type defining the property
+		/// </typeparam>
+		/// <typeparam name="TOutput">
+		/// the property type
+		/// </typeparam>
+		/// <param name="property">
+		/// the property.
+		/// </param>
+		/// <returns></returns>
+		public static Func<TInput, TOutput> CompileGetter<TInput, TOutput>(this PropertyInfo property)
+		{
+			// get the get method:
+			var getMethod = property.GetGetMethod();
+
+			// define the instance parameter:
+			var instanceParam = Expressions.Expression.Parameter(typeof(TInput), "Instance");
+
+			// create an expression to get the value of the property:
+			var lambda = Expressions.Expression.Lambda<Func<TInput, TOutput>>(Expressions.Expression.Convert(Expressions.Expression.Call(Expressions.Expression.Convert(instanceParam, property.DeclaringType), getMethod), typeof(TOutput)), instanceParam);
+
+			// compile the expression:
+			return lambda.Compile();
+		}
 	}
 
 	/// <summary>
 	/// base class for a tree-view-model;
 	/// </summary>
 	/// <typeparam name="T"></typeparam>
-	public class TreeViewModel : SimpleViewModel
+	public class TreeViewModel : ViewModelBase
 	{
 		public TreeViewModel()
 		{
@@ -738,8 +1313,8 @@ namespace Quick.MVVM
 			}
 		}
 
-		public Action<SimpleViewModel> OnSelected { get; set; }
-		public Action<SimpleViewModel> OnExpanded { get; set; }
+		public Action<ViewModelBase> OnSelected { get; set; }
+		public Action<ViewModelBase> OnExpanded { get; set; }
 
 		public ICommand Show { get { return new RelayCommand(() => Visible != Visibility.Visible, (o) => this.Visible = Visibility.Visible); } }
 

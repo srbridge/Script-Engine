@@ -11,6 +11,16 @@ using System.IO;
 namespace DataScriptEngine
 {
 	/// <summary>
+	/// script compatibility level
+	/// </summary>
+	public enum TSQLCompatibilityLevel
+	{
+		SQL_2005,
+		SQL_2008
+	}
+
+
+	/// <summary>
 	/// script types supported by the engine
 	/// </summary>
 	public enum DbScriptType
@@ -36,7 +46,11 @@ namespace DataScriptEngine
 		/// <summary>
 		/// creates a set of delete statements followed by insert statements. effectively updates all records.
 		/// </summary>
-		DeleteInsert
+		DeleteInsert,
+		/// <summary>
+		/// pre-deletes the entire table followed by insert-statements.
+		/// </summary>
+		Replace
 	}
 
 	/// <summary>
@@ -45,6 +59,11 @@ namespace DataScriptEngine
 	public class DbScriptTable
 	{
 		#region Properties
+
+		/// <summary>
+		/// compatibility level for use of sub-queries
+		/// </summary>
+		public TSQLCompatibilityLevel CompatibilityLevel { get; set; } = TSQLCompatibilityLevel.SQL_2005;
 
 		/// <summary>
 		/// the name of the table
@@ -70,6 +89,11 @@ namespace DataScriptEngine
 		/// schema info for each column
 		/// </summary>
 		public DbScriptColumnSchema[] SchemaInfo { get; set; } = null;
+
+		/// <summary>
+		/// relationships to other tables.
+		/// </summary>
+		public List<DbRelationship> Relationships { get; } = new List<DbRelationship>();
 
 		#endregion
 
@@ -107,8 +131,9 @@ namespace DataScriptEngine
 		public void GenerateScript(Stream target, DbScriptType type, bool useTransaction, int printStatusGap, bool closeStream = false)
 		{
 			var writer = new StreamWriter(target);
-			try {
-			
+			try
+			{
+
 				writer.WriteLine($"/** Auto-Generated {type} Script. Created {DateTime.Now} by {Environment.UserName}@{Environment.UserDomainName} on {Environment.MachineName} **/");
 				writer.WriteLine($"/** {type} {this.Rows.Count} Rows. Table: {this.TableName}{(!string.IsNullOrEmpty(WhereClause) ? $" Where: {WhereClause}" : "")} **/");
 
@@ -120,35 +145,85 @@ namespace DataScriptEngine
 
 				if (useTransaction)
 				{
+					// start a transaction
 					writer.WriteLine("BEGIN TRANSACTION");
 				}
 
+				// pre declare scalar variables for <=2005 compatibility
+				if (CompatibilityLevel == TSQLCompatibilityLevel.SQL_2005)
+				{
+					var declarations = this.Declarations;
+					if (!string.IsNullOrEmpty(declarations))
+					{
+						writer.WriteLine("/** sub query declarations **/");
+						writer.WriteLine(declarations);
+					}
+				}
+
+				// pre-delete records for replace script
+				if (type == DbScriptType.Replace)
+				{
+					// add the pre-delete all statement
+					writer.WriteLine($"/** delete all records from {TableName} **/");
+					writer.WriteLine($"DELETE FROM [{TableName}]");
+				}
+
+				var subQuerySetList = "";
 				int count = 0;
+
+				// enumerate the rows of data
 				foreach (var row in Rows)
 				{
+					
+					// append the comment
 					if (!string.IsNullOrEmpty(row.Comment))
 					{
 						writer.WriteLine($"/** {row.Comment} **/");
 					}
-					writer.WriteLine($"/****** {count} ******/");
+
+					// status comment
+					writer.WriteLine($"/** {TableName}:{type}:{count}/{Rows.Count} **/");
+
+					// fetch values into scalar variables for 2005 sub-select scripts
+					if (CompatibilityLevel == TSQLCompatibilityLevel.SQL_2005)
+					{
+						// get the sub-query set value T-SQL
+						var set = row.SubQueries;
+					
+						// check it's not null and different to the last one:
+						if (!string.IsNullOrEmpty(set) && !set.Equals(subQuerySetList))
+						{
+							subQuerySetList = set;
+							// write out the set @a = (select b from c where d)	queries that are required to lookup related items
+							writer.WriteLine(subQuerySetList);
+						}
+					}
+
+					// write out the correct statement depending on the type:
 					switch (type)
 					{
 
+						// write insert statements
 						case DbScriptType.Insert:
+						case DbScriptType.Replace:
 							writer.WriteLine(row.InsertStatement);
 							break;
+						// write update statements
 						case DbScriptType.Update:
 							writer.WriteLine(row.UpdateStatement);
 							break;
+						// write delete statements
 						case DbScriptType.Delete:
 							writer.WriteLine(row.DeleteStatement);
 							break;
+						// write insert/update conditional statements
 						case DbScriptType.InsertUpdate:
 							writer.WriteLine($"IF EXISTS(select * from {TableName} where {row.WhereClause})");
 							writer.WriteLine($"{row.UpdateStatement}");
 							writer.WriteLine($"ELSE");
 							writer.WriteLine($"{row.InsertStatement}");
 							break;
+						// write delete/insert statements
 						case DbScriptType.DeleteInsert:
 							writer.WriteLine(row.DeleteStatement);
 							writer.WriteLine(row.InsertStatement);
@@ -156,22 +231,25 @@ namespace DataScriptEngine
 						default:
 							break;
 					}
+					// increment
 					count++;
+					// write out progress statements
 					if (printStatusGap > 0 && count > 0)
 					{
 						if (count % printStatusGap == 0)
 						{
-							writer.WriteLine($"PRINT '{count}/{Rows.Count} COMPLETE'");
+							writer.WriteLine($"PRINT '{TableName}:{count}/{Rows.Count} COMPLETE'");
 						}
 					}
 				}
 				if (printStatusGap > 0)
 				{
-					writer.WriteLine($"PRINT '{count}/{Rows.Count} COMPLETE'");
+					writer.WriteLine($"PRINT '{TableName}:{count}/{Rows.Count} COMPLETE'");
 				}
 				if (useTransaction)
 				{
 					writer.WriteLine("COMMIT;");
+					writer.WriteLine("-- ROLLBACK;");
 				}
 			}
 			finally
@@ -287,6 +365,28 @@ namespace DataScriptEngine
 			}
 		}
 
+		/// <summary>
+		/// scalar variable declarations required
+		/// </summary>
+		public string Declarations
+		{
+			get
+			{
+				var sb = new StringBuilder();
+				var subqueries = (from r in Rows
+								  from c in r.Columns
+								 where c.IsSubQuery
+								select c.ScalarVariableDeclaration).Distinct();
+
+				foreach (var declaration in subqueries)
+				{
+					sb.AppendLine(declaration);
+				}
+
+				return sb.ToString();
+
+			}
+		}
 
 		#region Fill - Methods to fill the scripting table holder
 
@@ -331,14 +431,23 @@ namespace DataScriptEngine
 			foreach (var tblRow in tbl.Select(where))
 			{
 				var scriptRow = new DbScriptRow(this) { RowID = rowNum++ };
+			
+			
 				foreach (var info in SchemaInfo)
 				{
+					var tblCol = tbl.Columns[info.ColumnName];
+					DbRelationship rl = null;
+					if (tblCol.ExtendedProperties.ContainsKey("relationship"))
+						rl = DbRelationship.Parse(tblCol.ExtendedProperties["relationship"] as string);
+					
 					scriptRow.Columns.Add(new DbScriptColumn(scriptRow)
 					{
 						ColumnInfo = info,
-						Value = tblRow[info.ColumnName]
+						Value = tblRow[tblCol],
+						Relationship = rl
 					});
 				}
+
 				Rows.Add(scriptRow);
 			}
 		}
@@ -399,6 +508,62 @@ namespace DataScriptEngine
 	}
 
 	/// <summary>
+	/// relationship between two tables
+	/// </summary>
+	[Serializable]
+	public class DbRelationship
+	{
+		/// <summary>
+		/// the table selected from
+		/// </summary>
+		public string TableName { get; set; }
+
+		/// <summary>
+		/// the column selected from
+		/// </summary>
+		public string ColumnName { get; set; }
+
+		/// <summary>
+		/// the where clause restricting the join
+		/// </summary>
+		public string Join { get; set; }
+
+		/// <summary>
+		/// creates the select for the relationship
+		/// </summary>
+		/// <param name="row"></param>
+		/// <returns></returns>
+		public string CreateSelect(DbScriptRow row)
+		{
+			return $"select [{ColumnName}] from [{TableName}] where {row.GetForeignKeyWhere(this)}";
+		}
+
+		/// <summary>
+		/// parse a relationship from notation
+		/// </summary>
+		/// <param name="rel"></param>
+		/// <returns></returns>
+		public static DbRelationship Parse(string rel)
+		{
+			var parts = rel.Trim('{','}').Trim().Split(' ');
+			if (parts.Length > 1)
+			{
+				var tableColumn = parts[0].Split('.');
+				var join = String.Join(" ", parts.Skip(1).ToArray());
+				return new DbRelationship { TableName = tableColumn[0], ColumnName = tableColumn[1], Join = join };
+			}
+			throw new Exception("Invalid Relationship Format");
+		}
+
+		public override string ToString()
+		{
+			return $"{{ {TableName}.{ColumnName} {Join} }}";
+
+		}
+	}
+
+
+	/// <summary>
 	/// represents a single row in a table to be scripted
 	/// </summary>
 	public class DbScriptRow
@@ -431,6 +596,67 @@ namespace DataScriptEngine
 		/// the columns in the row
 		/// </summary>
 		public List<DbScriptColumn> Columns { get; set; } = new List<DbScriptColumn>();
+
+		/// <summary>
+		/// default property: access column-info by name
+		/// </summary>
+		/// <param name="name"></param>
+		/// <returns></returns>
+		public DbScriptColumn this[string name]
+		{
+			get
+			{
+				return (from c in Columns where c.ColumnName.Equals(name, StringComparison.OrdinalIgnoreCase) select c).FirstOrDefault();
+			}
+		}
+
+		public DbScriptColumn this[int ordinal]
+		{
+			get
+			{
+				return (from c in Columns where c.ColumnInfo.ColumnOrdinal == ordinal select c).FirstOrDefault();
+			}
+		}
+
+		public string From
+		{
+			get
+			{
+				var frm = new StringBuilder();
+				var qry = (from c in Columns where c.Relationship != null group c by c.Relationship.TableName into g select g);
+				if (qry.Any())
+				{
+					foreach (var tbl in qry)
+					{
+						if (frm.Length > 0)
+							frm.Append(",");
+						frm.Append(tbl.Key);
+					}
+
+
+				}
+				return frm.ToString();
+			}
+		}
+
+		public string SubQueries
+		{
+			get
+			{
+				var queries = (from c in this.Columns where c.IsSubQuery select c.SubQuerySetStatement);
+				var sb = new StringBuilder();
+				foreach (var set in queries)
+				{
+					if (sb.Length > 0)
+						sb.AppendLine();
+					sb.Append(set);
+				}
+
+				return sb.ToString();
+
+			}
+		}
+
 
 		/// <summary>
 		/// delimited list of fields for the row (only populated non-identity fields)
@@ -523,7 +749,7 @@ namespace DataScriptEngine
 				foreach (var value in Columns.Where((c) => c.ColumnInfo.IsKey && c.Value != null && c.Value != DBNull.Value))
 				{
 					if (sb.Length > 0)
-						sb.Append(", ");
+						sb.Append(" and ");
 					sb.Append($"[{value.ColumnName}] = {value.ScriptValue}");
 				}
 				return sb.ToString();
@@ -541,7 +767,7 @@ namespace DataScriptEngine
 				foreach (var value in Columns.Where((c) => c.ColumnInfo.IsIdentity && c.Value != null && c.Value != DBNull.Value))
 				{
 					if (sb.Length > 0)
-						sb.Append(", ");
+						sb.Append(" and ");
 					sb.Append($"[{value.ColumnName}] = {value.ScriptValue}");
 				}
 				return sb.ToString();
@@ -559,7 +785,7 @@ namespace DataScriptEngine
 				foreach (var value in Columns.Where((c) => c.ColumnInfo.IsUnique && c.Value != null && c.Value != DBNull.Value))
 				{
 					if (sb.Length > 0)
-						sb.Append(", ");
+						sb.Append(" and ");
 					sb.Append($"[{value.ColumnName}] = {value.ScriptValue}");
 				}
 				return sb.ToString();
@@ -574,6 +800,20 @@ namespace DataScriptEngine
 			get
 			{
 				return $"INSERT INTO [{Table.TableName}] ({Fields})\r\nVALUES ({Values})";
+			}
+		}
+
+		public string InsertRelated
+		{
+			get
+			{
+				var rel = Table.Relationships.FirstOrDefault();
+				if (rel != null)
+				{
+					return $"INSERT INTO {Table.TableName} ({Fields}) SELECT {Values} FROM {rel.TableName} WHERE {GetForeignKeyWhere(rel)}";
+				}
+				else
+					return InsertStatement;
 			}
 		}
 
@@ -597,6 +837,22 @@ namespace DataScriptEngine
 			{
 				return $"DELETE FROM [{Table.TableName}]\r\n WHERE {WhereClause}";
 			}
+		}
+
+		/// <summary>
+		/// enumerates the where-clauses for foreign keys
+		/// </summary>
+		public string GetForeignKeyWhere(DbRelationship rl)
+		{
+			var join = rl.Join;
+			foreach (var col in this.Columns)
+			{
+				if (join.Contains(":" + col.ColumnName.ToLower()))
+				{
+					join = join.Replace(":" + col.ColumnName.ToLower(), col.ScriptValue);
+				}
+			}
+			return join;
 		}
 	}
 
@@ -646,6 +902,14 @@ namespace DataScriptEngine
 		public Type ClrType { get { return ColumnInfo.DataType; } }
 
 		/// <summary>
+		/// gets or sets the relationship for this column
+		/// </summary>
+		public DbRelationship Relationship
+		{
+			get; set;
+		}
+
+		/// <summary>
 		/// current value
 		/// </summary>
 		public object Value { get; set; }
@@ -654,6 +918,53 @@ namespace DataScriptEngine
 		/// is this an identity column (shouldn't be on an insert statement)
 		/// </summary>
 		public bool IsIdentity { get { return ColumnInfo.IsIdentity; } }
+																		
+		/// <summary>
+		/// does this column define a sub-query?
+		/// </summary>
+		public bool IsSubQuery { get { return this.Relationship != null; } }
+
+		/// <summary>
+		/// if the sub-query result is to be stored in a scalar variable, this is the name
+		/// </summary>
+		public string ScalarVariableName {  get { return "@" + this.Table.TableName + "_" + this.ColumnName; } }
+
+		/// <summary>
+		/// declaration for the scalar variable
+		/// </summary>
+		public string ScalarVariableDeclaration
+		{
+			get
+			{
+				return $"declare {ScalarVariableName} as {ColumnInfo.SqlDbType};";
+			}
+		}
+
+		/// <summary>
+		/// renders the sub-query string
+		/// </summary>
+		public string SubQuery
+		{
+			get
+			{
+				if (Relationship != null)
+				{
+					return Relationship.CreateSelect(this.Row);
+				}
+				else
+					return null;
+			}
+		}
+
+		public string SubQuerySetStatement
+		{
+			get
+			{
+				return $"SET {ScalarVariableName} = ({SubQuery})";
+			}
+		}
+
+		
 
 		/// <summary>
 		/// gets the delimited text value for this column formatted for output on an SQL script.
@@ -662,9 +973,43 @@ namespace DataScriptEngine
 		{
 			get
 			{
+				
+				if (IsSubQuery)
+				{
+					// for pre 2008 databases, sub-queries aren't allowed.
+					// in this situation, the script pre-populates a number of scalar
+					// variables based on the sub-select queries inserted in the script
+					// in which case, we return just the scalar variable name 
+					if (Table.CompatibilityLevel == TSQLCompatibilityLevel.SQL_2005)
+						return ScalarVariableName;
+					else
+					{
+						// sub queries are allowed - return the sub-query.
+						return SubQuery;
+					}
+				}
 				// return "null" for a DBNull
 				if (Value == DBNull.Value || Value == null)
 					return "null";
+
+				// check for script modifiers
+				if (Value.ToString().StartsWith("{", StringComparison.OrdinalIgnoreCase) && Value.ToString().EndsWith("}", StringComparison.OrdinalIgnoreCase))
+				{
+					var value = Value.ToString().Trim('{').Trim('}').ToLower();
+					foreach (var field in this.Row.Columns)
+					{
+						var foreignKey = ":" + field.ColumnName.ToLower();
+
+						if (value.Contains(foreignKey))
+						{
+							value = value.Replace(foreignKey, field.ScriptValue);
+						}
+					}
+
+					// return the fixed script value
+					return "(" + value +")";
+
+				}
 
 				// varchar etc, delimited text using single quotes:
 				if (DbType.IsStringType())

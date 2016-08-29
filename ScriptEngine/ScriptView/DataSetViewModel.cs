@@ -3,10 +3,12 @@ using Quick.MVVM;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Data;
 using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -28,13 +30,16 @@ namespace ScriptView
 	/// <summary>
 	/// view model for a data-set and query view
 	/// </summary>
-	class DataSetViewModel : SimpleViewModel
+	class DataSetViewModel : ViewModelBase
 	{
 		public DataSetViewModel()
 			: base()
 		{
 			// create a new data-set;
 			this.Model = new DataSet();
+
+			// add the relationships extended property:
+			this.Model.ExtendedProperties["relations"] = this.Relationships;
 
 			// start querying for sql servers:
 			this.Servers = new SqlEnvironmentViewModel(this);
@@ -65,6 +70,11 @@ namespace ScriptView
 		}
 
 		#region SQL Servers
+
+		/// <summary>
+		/// database relationships.
+		/// </summary>
+		public List<DbRelationship> Relationships { get; } = new List<DbRelationship>();
 
 		/// <summary>
 		/// gets or sets a query to execute against the selected connection.
@@ -191,9 +201,31 @@ namespace ScriptView
 			get { return new RelayCommand(() => SelectedConnection != null, ExecuteGetSchema); }
 		}
 
+		/// <summary>
+		/// command to add a new server into the connection list. optionally using SQL security.
+		/// </summary>
 		public ICommand AddServer
 		{
 			get { return new RelayCommand(ExecuteAddServer); }
+		}
+
+		/// <summary>
+		/// executes a paste into the currently selected table. the source data must match destination at least in terms of columns and types.
+		/// </summary>
+		public ICommand PasteInto
+		{
+			get
+			{
+				return new RelayCommand(() => Clipboard.ContainsData(DataFormats.CommaSeparatedValue), ExecutePasteTable);
+			}
+		}
+
+		public ICommand LoadScript
+		{
+			get
+			{
+				return new RelayCommand(() => SelectedConnection != null, ExecuteMultipleSelectScript);
+			}
 		}
 
 		#endregion
@@ -207,6 +239,7 @@ namespace ScriptView
 		{
 			get
 			{
+				yield return DbScriptType.Replace;
 				yield return DbScriptType.Insert;
 				yield return DbScriptType.InsertUpdate;
 				yield return DbScriptType.DeleteInsert;
@@ -221,7 +254,13 @@ namespace ScriptView
 		public DbScriptType SelectedScriptType
 		{
 			get { return GetValue(() => SelectedScriptType); }
-			set { SetValue(() => SelectedScriptType, value); }
+			set { if (SetValue(() => SelectedScriptType, value))
+				{
+					// other properties change too
+					OnPropertyChanged(nameof(GenerateDataSetScriptButtonText));
+					OnPropertyChanged(nameof(GenerateScriptButtonText));
+				}
+			}
 		}
 
 		/// <summary>
@@ -231,7 +270,6 @@ namespace ScriptView
 		{
 			get { return GetValue(() => UseTransaction); }
 			set { SetValue(() => UseTransaction, value); }
-
 		}
 
 		/// <summary>
@@ -250,6 +288,28 @@ namespace ScriptView
 		{
 			get { return GetValue(() => ScriptToClipboard); }
 			set { SetValue(() => ScriptToClipboard, value); }
+		}
+
+		/// <summary>
+		/// text for the generate script button
+		/// </summary>
+		public string GenerateScriptButtonText
+		{
+			get
+			{
+				return $"{SelectedScriptType} for {SelectedTable.TableName}";
+			}
+		}
+
+		/// <summary>
+		/// text for the generate script button
+		/// </summary>
+		public string GenerateDataSetScriptButtonText
+		{
+			get
+			{
+				return $"{SelectedScriptType} for All";
+			}
 		}
 
 		#endregion
@@ -272,6 +332,7 @@ namespace ScriptView
 				var mnuScriptUpdate = new MenuItem { Header = "As Update" };
 				var mnuScriptDelete = new MenuItem { Header = "As Delete" };
 				var mnuRemove = new MenuItem { Header = $"Remove {SelectedTable.TableName}", Tag = SelectedTable };
+				var mnuPaste = new MenuItem { Header = "Paste Insert", Command = this.PasteInto };
 
 				// create a sub-context menu containing one of each column:
 				// to enable the operator to change the primary key sequence:
@@ -280,7 +341,7 @@ namespace ScriptView
 					var mnuCol = new MenuItem
 					{
 						Header = col.ColumnName,
-						IsCheckable = true,
+						IsCheckable = false,
 						IsChecked = SelectedTable.PrimaryKey.Contains(col),
 						StaysOpenOnClick = true,
 						Tag = col
@@ -290,11 +351,67 @@ namespace ScriptView
 						mnuCol.FontWeight = FontWeights.Bold;
 						mnuCol.Foreground = Brushes.Blue;
 					}
-					mnuCol.Checked   += (s, e) => mnuPKey.IsEnabled = true;
+					mnuCol.Checked += (s, e) => mnuPKey.IsEnabled = true;
 					mnuCol.Unchecked += (s, e) => mnuPKey.IsEnabled = true;
 
 					// add to the 'columns' menu
 					mnuCols.Items.Add(mnuCol);
+
+					string rel = "";
+					if (col.ExtendedProperties.ContainsKey("relationship"))
+						rel = col.ExtendedProperties["relationship"] as string;
+					if (rel == null)
+						rel = "";
+
+
+					// create a sub-menu to set relationship select statements
+					var txt = new TextBox() { Text = rel,  MinWidth = 50 };
+					var mnu = new MenuItem { Header = "Set Relationship Query" };
+					mnu.Tag = col;
+					mnu.StaysOpenOnClick = true;
+					var btn = new Button() { Content = "Relationship" };
+					btn.Click += (s, e) => {
+
+						// create the view
+						var vw = new DbRelationView();
+
+						// pass in the data-set;
+						vw.ViewModel.DataSet = this.Model;
+
+						if (rel != null)
+						{
+							vw.ViewModel.Model = DbRelationship.Parse(rel);
+						}
+
+						// show 
+						var rs = vw.ShowDialog();
+						if (rs.HasValue && rs.Value)
+						{
+							// set the relationship
+							col.ExtendedProperties["relationship"] = vw.ViewModel.Model.ToString();
+						}
+					};
+
+					mnu.Items.Add(btn);
+					mnu.Items.Add(txt);
+					mnu.Items.Add(new Separator());
+					var pkey = new MenuItem { IsCheckable = true, IsChecked = SelectedTable.PrimaryKey.Contains(col), Header = "Is Primary Key", StaysOpenOnClick = true };
+					pkey.Tag = mnuCol;
+					pkey.Checked += (s, e) => 
+					{
+						mnuPKey.IsEnabled = true;
+						(((MenuItem)s).Tag as MenuItem).IsChecked = true;
+					};
+					pkey.Unchecked += (s, e) =>
+					{
+						mnuPKey.IsEnabled = true;
+						(((MenuItem)s).Tag as MenuItem).IsChecked = false;
+					};
+					txt.TextChanged += (s, e) => col.ExtendedProperties["relationship"] = ((TextBox)s).Text;
+					mnuCol.Items.Add(mnu);
+					mnuCol.Items.Add(pkey);
+
+
 				}
 
 				mnuCols.Items.Add(new Separator());
@@ -418,35 +535,20 @@ namespace ScriptView
 					yield return mnuName;
 				}
 
+				// create a relationship menu
+
+
+
 				// yield the menu as built:
+				yield return mnuPaste;
+				yield return new Separator();
+
 				yield return mnuRemove;
 				yield return new Separator();
 				yield return mnuScript;
 				yield return new Separator();
 				yield return mnuCols;
 				
-			}
-		}
-
-		/// <summary>
-		/// text for the generate script button
-		/// </summary>
-		public string GenerateScriptButtonText
-		{
-			get
-			{
-				return $"{SelectedScriptType} for {SelectedTable.TableName}";
-			}
-		}
-
-		/// <summary>
-		/// text for the generate script button
-		/// </summary>
-		public string GenerateDataSetScriptButtonText
-		{
-			get
-			{
-				return $"{SelectedScriptType} for All";
 			}
 		}
 
@@ -635,16 +737,44 @@ namespace ScriptView
 		/// <param name="param"></param>
 		protected void ExecuteAddServer(object param)
 		{
-			var sn = InputBox.GetInput("Enter Server Name", "Add SQL Server");
-			if (!string.IsNullOrWhiteSpace(sn))
+			// create a new view with a dynamic model
+			var view = new SqlConnectionView();
+
+			// grab a dynamic reference to the model
+			dynamic model = view.DataContext;
+			
+			// ensure these properties are created
+			model.UseIntegratedSecurity = false;
+			model.UID = null;
+			model.PWD = null;
+
+			// show the view as a dialog and suspend execution until user clicks OK or CANCEL
+			var rs = view.ShowDialog();
+
+			// check the user clicked OK
+			if (rs.HasValue && rs.Value)
 			{
-				// add the node:
-				var info = new SqlServerInfo(sn, false);
+				// the PWD property should now be populated with a SecureString
+				if (model.PWD is SecureString)
+				{
+					// finalize the password:
+					model.PWD.MakeReadOnly();
+				}
+
+				// create the sql server info
+				var info = new SqlServerInfo(model.ServerName, false) { UseIntegratedSecurity = model.UseIntegratedSecurity, UID = model.UID, PWD = model.PWD };
+
+				// create the node:
 				var vmdl = new SqlServerViewModel(info) { Owner = this };
 
+				// add it to the server's nodes collection
 				SafeInvoke(() => this.Servers.Nodes.Add(vmdl));
-				
+
+
 			}
+
+
+			
 		}
 
 		/// <summary>
@@ -666,7 +796,7 @@ namespace ScriptView
 
 					// load the data set:
 					DataSet ds = new DataSet();
-					ds.ReadXmlSchema(dlg.FileName);
+					//ds.ReadXmlSchema(dlg.FileName);
 					ds.ReadXml(dlg.FileName);
 
 					// set the dataset:
@@ -737,8 +867,8 @@ namespace ScriptView
 							da.FillSchema(dt, SchemaType.Source);
 
 							// store the original select statement;
-							dt.ExtendedProperties["select"] = CommandText;
-							dt.ExtendedProperties["connect"] = SelectedConnection.GetConnectionString();
+							dt.ExtendedProperties["select"]     = CommandText;
+							dt.ExtendedProperties["connect"]    = SelectedConnection.GetConnectionString();
 							dt.ExtendedProperties["scriptName"] = dt.TableName;
 
 							// use the data adapter to fill the table
@@ -752,6 +882,10 @@ namespace ScriptView
 						}
 						OnPropertyChanged(nameof(Tables));
 					}
+				}
+				catch (Exception e)
+				{
+					MessageBox.Show(e.ToString());
 				}
 				finally
 				{
@@ -831,6 +965,139 @@ namespace ScriptView
 			}
 		}
 
+		/// <summary>
+		/// pastes clipboard data into the currently selected table.
+		/// </summary>
+		/// <param name="param">not used</param>
+		protected void ExecutePasteTable(object param)
+		{
+			// paste into the selected table
+			if (SelectedTable != null)
+			{
+				// grab the clipboard data as generic string rows and columns
+				var data = GetClipboardData();
+
+				// check we got some results
+				if (data.Count > 0)
+				{
+					// defer error checking and index maintenance on the selected tabkle
+					SelectedTable.BeginLoadData();
+					try
+					{
+						// enumerate the data retrieved from the clipboard
+						foreach (var row in data)
+						{
+							// using the data-type specified on each column, convert the strings to values
+							object[] values = new object[SelectedTable.Columns.Count];
+
+							// enumerate the elements of the row/ number of columns
+							for (int i = 0; i < Math.Min(row.Length, SelectedTable.Columns.Count); i++)
+							{
+								// select the column:
+								var col = SelectedTable.Columns[i];
+
+								//  get a type converter specific to the column's data type
+								var converter = TypeDescriptor.GetConverter(col.DataType);
+
+								// check there are some characters
+								if (!string.IsNullOrEmpty(row[i]))
+								{
+									// is this a relationship value?
+									if (row[i].StartsWith("{", StringComparison.OrdinalIgnoreCase) && row[i].EndsWith("}", StringComparison.OrdinalIgnoreCase))
+									{
+										// the column data type may not be appropriate
+										// set an extended property for the column
+										if (!col.ExtendedProperties.ContainsKey("relationship"))
+											col.ExtendedProperties["relationship"] = row[i].Trim('{', '}');
+									}
+									else
+									{
+										// convert the value:
+										values[i] = converter.ConvertFromString(row[i]);
+									}
+								}
+							}
+
+							// load the row into the table
+							// this has only really been tested with text columns
+							var newRow = SelectedTable.LoadDataRow(values, LoadOption.Upsert);
+							
+						}
+					}
+					finally
+					{
+						// resume normal table ops
+						SelectedTable.EndLoadData();
+						SelectedTable.AcceptChanges();
+
+						// indicate to the UI that
+						OnPropertyChanged(nameof(SelectedTable));
+					}
+				}
+
+
+			}
+
+		}
+
+		/// <summary>
+		/// lets you load an SQL script and executes it against the current connection.
+		/// </summary>
+		/// <param name="param"></param>
+		protected void ExecuteMultipleSelectScript(object param)
+		{
+			if (this.SelectedConnection != null)
+			{
+				// prompt to open the script file
+				var dlg = new Microsoft.Win32.OpenFileDialog();
+				dlg.Filter = "Query Set Files|*.sql;*.qry;*.txt";
+				dlg.Title  = "Open Query Set";
+				var result = dlg.ShowDialog();
+				if (result.HasValue && result.Value)
+				{
+					// use a semi-colon to seperate out the individual statements
+					var sql = File.ReadAllText(dlg.FileName).Split(';');
+
+					using (var conn = this.SelectedConnection.CreateConnection())
+					{
+						foreach (var qry in sql)
+						{
+							// build an adapter:
+							using (var da = new SqlDataAdapter(qry, conn))
+							{
+								// setup a table:
+								var dt = new DataTable();
+
+								// fill the table with schema info:
+								da.FillSchema(dt, SchemaType.Source);
+
+								// store the original select statement;
+								dt.ExtendedProperties["select"] = qry;
+								dt.ExtendedProperties["connect"] = SelectedConnection.GetConnectionString();
+								dt.ExtendedProperties["scriptName"] = dt.TableName;
+
+								// use the data adapter to fill the table
+								da.Fill(dt);
+
+								// add the table to the data-set;
+								this.Model.Tables.Add(dt);
+
+								// select the table
+								this.SelectedTable = dt;
+							}
+						}
+
+					}
+
+
+
+
+
+				}
+			}
+		}
+
+
 		#endregion
 
 		#region DataSet Properties
@@ -891,6 +1158,143 @@ namespace ScriptView
 		#endregion
 
 	}
+
+	/// <summary>
+	/// view-model showing all the relationships.
+	/// </summary>
+	public class DbRelationshipsViewModel : ListViewModel<DbRelationship>
+	{
+		protected override void OnExecCreate(object p)
+		{
+			// create the new relationship:
+			var rl = new DbRelationship();
+
+			// add it to the items collection:
+			SafeInvoke(() => Items.Add(rl));
+
+			// set the selected item:
+			Selected = rl;
+
+			// invoke the method to edit it:
+			OnExecAdjust(p);
+
+		}
+
+		protected override void OnExecDelete(object p)
+		{
+			if (Selected != null)
+				SafeInvoke(() => Items.Remove(Selected));
+		}
+
+		protected override void OnExecAdjust(object p)
+		{
+			if (Selected != null)
+			{
+				// create the view & assign the model
+				var wnd = new DbRelationView() { DataContext = new DbRelationViewModel(Selected) };
+
+				// show as dialog:
+				wnd.ShowDialog();
+
+				// indicate the value changed:
+				OnPropertyChanged(nameof(Items));
+			}
+			base.OnExecAdjust(p);
+		}
+
+	}
+
+
+	public class DbRelationViewModel : DialogViewModel<DbRelationship>
+	{
+
+		public DbRelationViewModel()
+			: base()
+		{
+			this.Model = new DbRelationship();
+			
+		}
+
+		public DbRelationViewModel(DbRelationship rl)
+			: base()
+		{
+			this.Model = rl;
+		}
+
+
+		public string TableName
+		{
+			get { return GetModelValue(() => TableName); }
+			set { if (SetModelValue(() => TableName, value))
+					OnPropertyChanged(nameof(ColumnNames));
+			}
+		}
+
+		public string ColumnName
+		{
+			get { return GetModelValue(() => ColumnName); }
+			set { SetModelValue(() => ColumnName, value); }
+		}
+
+		public string Join
+		{
+			get { return GetModelValue(() => Join); }
+			set { SetModelValue(() => Join, value); }
+		}
+
+		/// <summary>
+		/// provides the lists of tables and columns
+		/// </summary>
+		public DataSet DataSet { get; set; }
+
+		/// <summary>
+		/// select list of table-names from the data-set
+		/// </summary>
+		public IEnumerable<string> TableNames
+		{
+			get
+			{
+				if (DataSet != null)
+				{
+					foreach (var tbl in DataSet.Tables.Cast<DataTable>())
+						yield return tbl.TableName;
+				}
+			}
+		}
+
+		/// <summary>
+		/// select list of column-names from the table selected in <see cref="TableName"/>
+		/// </summary>
+		public IEnumerable<string> ColumnNames
+		{
+			get
+			{
+				if (!string.IsNullOrEmpty(TableName))
+				{
+					var tbl = DataSet.Tables[this.TableName];
+					foreach (var col in tbl.Columns.Cast<DataColumn>())
+					{
+						yield return col.ColumnName;
+					}
+				}
+			}
+		}
+
+
+		protected override void OnModelChanged(DbRelationship changedModel)
+		{
+			base.OnModelChanged(changedModel);
+
+
+			// call property-changed for every property:
+			foreach (var p in typeof(DbRelationViewModel).GetProperties())
+				OnPropertyChanged(p.Name);
+
+
+		}
+	}
+
+	
 
 	/// <summary>
 	/// provides some additional properties to the <see cref="DataTable"/> for display in a list-box

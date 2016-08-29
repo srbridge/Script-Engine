@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Product Id="*" Name="Setup Script Engine" Language="1033" Version="1.0.0.0" Manufacturer="Simon Bridge" UpgradeCode="ac6b8885-d12a-4513-bf65-6ff4b5a23486">
+    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate />
+    
+
+    <!-- define the install locations-->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <!-- install application in program files folder-->
+      <Directory Id="ProgramFilesFolder">
+        <!-- in folder "Script Engine"-->
+        <Directory Id="INSTALLFOLDER" Name="ScriptEngine" />
+      </Directory>
+      <!-- install a shortcut in the program menu (start menu) -->
+      <Directory Id="ProgramMenuFolder">
+        <!-- create the start menu folder-->
+        <Directory Id="ApplicationProgramsFolder" Name="Script Engine"/>
+      </Directory>
+    </Directory>
+
+    <!-- define the files (components) that are to be added to the install folder-->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ScriptView.exe"  Guid="{E1BDF2C2-AFD4-49D3-AC5C-A692F015CF85}">
+        <File Id="ScriptView.exe" Assembly=".net" Source="$(var.ScriptView.TargetPath)" KeyPath="yes"></File>
+      </Component>
+      <Component Id="ScriptEngine.dll" Guid="{6D4C63E1-003B-4302-9F55-9DDE2ADC6B5A}">
+        <File Id="ScriptEngine.dll" Assembly=".net" Source="$(var.ScriptEngine.TargetPath)" KeyPath="yes"></File>
+      </Component>
+    </DirectoryRef>
+
+    <!-- define the start menu shortcut-->
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="ApplicationShortcut" Guid="*">
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="Script Engine"
+                  Description="SQL Server Data Scripting Solution"
+                  Target="[#ScriptView.exe]"
+                  WorkingDirectory="INSTALLFOLDER"/>
+        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+        <RegistryValue Root="HKCU" Key="Software\Microsoft\MyApplicationName" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
+    
+    <!-- actually do the install here -->
+    <Feature Id="ProductFeature" Title="Script Engine" Level="1">
+      <ComponentRef Id="ScriptView.exe"/>
+      <ComponentRef Id="ScriptEngine.dll"/>
+      <ComponentRef Id="ApplicationShortcut"/>
+    </Feature>
+  </Product>
+</Wix>

@@ -81,5 +81,39 @@ namespace ScriptView
 
 			return null;
 		}
+
+		/// <summary>
+		/// retrieves the entered string value, setting the window-title and caption also
+		/// </summary>
+		/// <param name="caption">
+		/// caption text to go above the input box
+		/// </param>
+		/// <param name="title">
+		/// title for the input box
+		/// </param>
+		/// <returns>
+		/// the entered string (or null)
+		/// </returns>
+		public static string GetInput(string caption, string title, string value)
+		{
+			var input = new InputBox();
+
+			// set the caption and title:
+			input.ViewModel.Caption = caption;
+			input.ViewModel.WindowTitle = title;
+			input.ViewModel.Value = value;
+
+			// show the dialog:
+			var r = input.ShowDialog();
+
+			// check for positive response:
+			if (r.HasValue && r.Value)
+			{
+				//	return the entered value:
+				return input.ViewModel.Value;
+			}
+
+			return null;
+		}
 	}
 }

@@ -1,0 +1,44 @@
+﻿<Window x:Class="ScriptView.DbRelationView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ScriptView"
+        xmlns:mv="clr-namespace:Quick.MVVM"
+        mc:Ignorable="d"
+        Title="Relationship" Width="320" ResizeMode="NoResize" SizeToContent="Height" Icon="Images/SQL_16x.png">
+    <Window.DataContext>
+        <local:DbRelationViewModel EnableOK="True"/>
+    </Window.DataContext>
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+        <Style TargetType="Label">
+            <Setter Property="HorizontalContentAlignment" Value="Right"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Width" Value="90"/>
+            <Setter Property="Height" Value="25"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+    </Window.Resources>
+    <DockPanel Margin="5">
+        
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" >
+            <mv:DialogResultBinder Visibility="Collapsed" DialogResult="{Binding DialogResult}"/>
+            <Button Command="{Binding CmdOK}">OK</Button>
+            <Button Command="{Binding CmdCancel}">Cancel</Button>
+        </StackPanel>
+        <StackPanel>
+            <mv:TwoColumnGrid>
+                <Label>Table Name</Label>
+                <TextBox Text="{Binding TableName}"/>
+                <Label>Column Name</Label>
+                <TextBox Text="{Binding ColumnName}"/>
+                <Label>Join</Label>
+                <TextBox Text="{Binding Join}" MinHeight="100"/>
+            </mv:TwoColumnGrid>
+        </StackPanel>
+    </DockPanel>
+</Window>

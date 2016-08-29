@@ -87,7 +87,7 @@ namespace ScriptView
 		/// override the OnNodeSelected method to set the <see cref="DataSetViewModel.SelectedSqlServer"/> property.
 		/// </summary>
 		/// <param name="sender"></param>
-		protected override void OnNodeSelected(SimpleViewModel sender)
+		protected override void OnNodeSelected(ViewModelBase sender)
 		{
 			if (Owner != null)
 				Owner.SelectedSqlServer = this.Info;
@@ -116,6 +116,10 @@ namespace ScriptView
 					// add it to the nodes collection:
 					SafeInvoke(() => Nodes.Add(db_model));
 				}
+			}
+			catch (Exception enumerateError)
+			{
+				System.Windows.MessageBox.Show(enumerateError.Message, Info.Description);
 			}
 			finally
 			{
@@ -186,7 +190,7 @@ namespace ScriptView
 		/// update the <see cref="DataSetViewModel.SelectedConnection"/> property when this node is selected.
 		/// </summary>
 		/// <param name="sender"></param>
-		protected override void OnNodeSelected(SimpleViewModel sender)
+		protected override void OnNodeSelected(ViewModelBase sender)
 		{
 			// set the selected connection (assuming owner is not null)
 			if (Owner != null)
@@ -266,7 +270,7 @@ namespace ScriptView
 
 		}
 
-		protected override void OnNodeSelected(SimpleViewModel sender)
+		protected override void OnNodeSelected(ViewModelBase sender)
 		{
 			// set the selected table on the owning view-model;
 			if (Owner != null)
@@ -304,10 +308,23 @@ namespace ScriptView
 			get
 			{
 				var mnu = base.ContextMenu;
-					mnu.Items.Add(new MenuItem() { Header = "Create Select Query",	   Command = CreateSelect });
-				    mnu.Items.Add(new MenuItem() { Header = "Select Top 1000 Records", Command = CreateExecuteSelect });
-
+					mnu.Items.Add(new MenuItem() { Header = "Create Select Query",	        Command = CreateSelect });
+				    mnu.Items.Add(new MenuItem() { Header = "Select Top 1000 Records",      Command = CreateExecuteSelect });
+					mnu.Items.Add(new MenuItem() { Header = "Copy Table Definition Script", Command = ScriptTableDef });
 				return mnu;
+			}
+		}
+
+		public ICommand ScriptTableDef
+		{
+			get
+			{
+
+				return new RelayCommand((o) =>
+				{
+					System.Windows.Clipboard.SetText(DataScriptEngine.SMOScripting.GetScriptTableDef(this.Info.Database.GetConnectionString(), this.Info.Database.DataBaseName, this.Name));
+					System.Windows.MessageBox.Show("Table Definition Copied to Clipboard");
+				});
 			}
 		}
 
@@ -334,7 +351,7 @@ namespace ScriptView
 	/// <summary>
 	/// a column within a table
 	/// </summary>
-	class SqlColumnViewModel : SimpleViewModel
+	class SqlColumnViewModel : ViewModelBase
 	{
 		/// <summary>
 		/// load one static copy of the bitmap
@@ -402,7 +419,7 @@ namespace ScriptView
 		/// invoked when the node is selected
 		/// </summary>
 		/// <param name="sender"></param>
-		protected virtual void OnNodeSelected(SimpleViewModel sender)
+		protected virtual void OnNodeSelected(ViewModelBase sender)
 		{													 
 			if (!m_sentinal)
 			{
@@ -422,11 +439,40 @@ namespace ScriptView
 		public ObservableCollection<childType> Nodes { get; } = new ObservableCollection<childType>();
 
 		/// <summary>
-		/// context menu
+		/// base context menu for all TreeViewModels
 		/// </summary>
 		public virtual ContextMenu	ContextMenu {
 
-			get { return new ContextMenu(); }
+			get {
+
+				// create the context menu
+				var ctx = new ContextMenu();
+
+				// add in a refresh item
+				ctx.Items.Add(new MenuItem() { Header = "Refresh", Command = Refresh });
+
+				// return the context menu
+				return ctx;
+
+			}
+
+		}
+
+		/// <summary>
+		/// refreshes the child list of the 
+		/// </summary>
+		public ICommand Refresh
+		{
+			get
+			{
+				return new RelayCommand((o) => {
+
+					// reset the sentinal and clear the nodes collection
+					// m_sentinal = false;
+					SafeInvoke(() => Nodes.Clear());
+					Task.Run(()   => QueryNodes());
+				});
+			}
 
 		}
 
