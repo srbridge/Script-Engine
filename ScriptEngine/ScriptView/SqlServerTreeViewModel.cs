@@ -315,16 +315,34 @@ namespace ScriptView
 			}
 		}
 
+		protected async void ExecScriptTable(object param)
+		{
+			
+			try
+			{
+				
+				using (var conn = this.Info.Database.CreateConnection())
+				{
+					var scriptTask = DataScriptEngine.SMOScripting.GetCreateTableScriptAsync(this.Name, conn);
+
+					System.Windows.Clipboard.SetText(await scriptTask);
+
+					System.Windows.MessageBox.Show($"Create Table Script for {this.Name} Copied to Clipboard");
+					
+				}
+			}
+			catch (Exception e)
+			{
+				System.Windows.MessageBox.Show(e.Message);
+			}
+		}
+
 		public ICommand ScriptTableDef
 		{
 			get
 			{
 
-				return new RelayCommand((o) =>
-				{
-					System.Windows.Clipboard.SetText(DataScriptEngine.SMOScripting.GetScriptTableDef(this.Info.Database.GetConnectionString(), this.Info.Database.DataBaseName, this.Name));
-					System.Windows.MessageBox.Show("Table Definition Copied to Clipboard");
-				});
+				return new RelayCommand(ExecScriptTable);
 			}
 		}
 

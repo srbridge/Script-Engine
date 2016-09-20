@@ -1,6 +1,7 @@
 using DataScriptEngine;
 using Quick.MVVM;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -16,6 +17,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Xml.Linq;
+
 
 namespace ScriptView
 {
@@ -45,28 +48,27 @@ namespace ScriptView
 			this.Servers = new SqlEnvironmentViewModel(this);
 
 			// set initial options:
-			this.UseTransaction = true;
-			this.PrintStatusCount = 50;
+			this.UseTransaction     = true;
+			this.PrintStatusCount   = 50;
 			this.SelectedScriptType = DbScriptType.InsertUpdate;
-			this.ScriptToClipboard = false;
-
+			this.ScriptToClipboard  = true;
 
 			if (InDesignMode)
 			{
 				// add example data for design mode:
 				var t = new DataTable("ExampleTable");
-				t.Columns.Add("Name", typeof(string));
+				t.Columns.Add("Name",  typeof(string));
 				t.Columns.Add("Value", typeof(string));
-				t.Rows.Add("Why", "Because");
-				t.Rows.Add("Thing", "Thingy");
+				t.Rows.Add("Type",  "Simple");
+				t.Rows.Add("Count", "100");
 
 				this.Model.Tables.Add(t);
 				this.SelectedTable = this.Tables.FirstOrDefault();
-				OnPropertyChanged(nameof(Tables));
 				this.CommandText = "select * from [ExampleTable]";
 				this.SelectedConnection = new SqlDbInfo("SomeServer", "SomeInstance", "SomeDatabase");
-			}
 
+				OnPropertyChanged(nameof(Tables));
+			}
 		}
 
 		#region SQL Servers
@@ -228,6 +230,22 @@ namespace ScriptView
 			}
 		}
 
+		public ICommand ExportQueryXML
+		{
+			get
+			{
+				return new RelayCommand(() => Model.Tables.Count > 0, ExecExportScriptFile);
+			}
+		}
+
+		public ICommand ImportQueryXML
+		{
+			get
+			{
+				return new RelayCommand(ExecImportScriptFile);
+			}
+		}
+
 		#endregion
 
 		#region Scripting Options Properties
@@ -297,7 +315,7 @@ namespace ScriptView
 		{
 			get
 			{
-				return $"{SelectedScriptType} for {SelectedTable.TableName}";
+				return $"{SelectedScriptType} for {SelectedTable?.TableName}";
 			}
 		}
 
@@ -844,6 +862,188 @@ namespace ScriptView
 		}
 
 		/// <summary>
+		/// enumerates the select statements that created the current set of data-tables.
+		/// </summary>
+		public IEnumerable<string> TableSelectStatements
+		{
+			get
+			{
+				return (from DataTable t in Model.Tables
+						where t.ExtendedProperties.ContainsKey("select")
+						select t.ExtendedProperties["select"] as string);
+			}
+		}
+
+		/// <summary>
+		/// fetches the select and connect extended properties from each of the data-tables in the set and groups them by the connection string value
+		/// </summary>
+		public IEnumerable<IGrouping<string, dynamic>> ConnectionStringSelectStatements
+		{
+			get
+			{
+				var qry = (
+				   from DataTable t in Model.Tables
+				  where t.ExtendedProperties.ContainsKey("select") 
+				     && t.ExtendedProperties.ContainsKey("connect")
+				 select new {
+					  ConnectString  = t.ExtendedProperties["connect"] as string,
+					  SelectStatement = t.ExtendedProperties["select"] as string,
+					  TableName = t.TableName
+				  });
+
+				return (from q in qry group q by q.ConnectString into selectByConnection select selectByConnection);
+			}
+		}
+
+		/// <summary>
+		/// creates a string serialization that this software can execute to re-query the entire contents;
+		/// </summary>
+		/// <returns></returns>
+		public string CreateScriptFile()
+		{
+			var script = new XElement("Script", 
+				(from db in this.ConnectionStringSelectStatements
+			     select new XElement("Database", 
+					(from s in db select new XElement("Select", s.SelectStatement, 
+						new XAttribute("tableName", s.TableName))), 
+							new XAttribute("connect", db.Key))));
+
+			return script.ToString();
+		}
+
+		/// <summary>
+		/// gets login data for an Sql Server: Secure Collection of Password into SecureString
+		/// </summary>
+		/// <param name="scb"></param>
+		/// <returns></returns>
+		protected SqlServerInfo GetLogin(SqlConnectionStringBuilder scb)
+		{
+			// create a new view with a dynamic model
+			var view = new SqlConnectionView();
+
+			// grab a dynamic reference to the model
+			dynamic model = view.DataContext;
+
+			// ensure these dynamic properties are created
+			model.UseIntegratedSecurity = scb.IntegratedSecurity;
+			model.ServerName            = scb.DataSource;
+			model.UID                   = scb.UserID;
+			model.PWD                   = null;
+
+			// show the view as a dialog and suspend execution until user clicks OK or CANCEL
+			var rs = view.ShowDialog();
+
+			// check the user clicked OK
+			if (rs.HasValue && rs.Value)
+			{
+				// the PWD property should now be populated with a SecureString
+				if (model.PWD is SecureString)
+				{
+					// finalize the password:
+					model.PWD.MakeReadOnly();
+				}
+
+				// create the sql server info
+				return new SqlServerInfo(model.ServerName, false) { UseIntegratedSecurity = model.UseIntegratedSecurity, UID = model.UID, PWD = model.PWD };
+			}
+
+			return null;
+		}
+
+		/// <summary>
+		/// executes an XML scripting file (file contains database connection details and queries)
+		/// </summary>
+		/// <param name="xmlScript"></param>
+		protected void ExecuteScriptFile(string xmlScript)
+		{
+			var dbs = (from db in XDocument.Parse(xmlScript).Descendants("Database") select db);
+
+			foreach (var db in dbs)
+			{
+				var scsb = new SqlConnectionStringBuilder((string)db.Attribute("connect"));
+
+				SqlServerInfo info = null;
+
+				if (!scsb.IntegratedSecurity)
+				{
+					// need to request user-id & password;
+					info = GetLogin(scsb);	
+				}
+				else
+				{
+					info = new SqlServerInfo(scsb.DataSource);
+				}
+
+				var dbConnectInfo = new SqlDbInfo(info, scsb.InitialCatalog);
+
+				using (var conn = dbConnectInfo.CreateConnection())
+				{
+					var queries = (from q in db.Descendants("Select") select q.Value);
+
+					foreach (var qry in queries)
+					{
+						// build an adapter:
+						using (var da = new SqlDataAdapter(qry, conn))
+						{
+							// setup a table:
+							var dt = new DataTable();
+
+							// fill the table with schema info:
+							da.FillSchema(dt, SchemaType.Source);
+
+							// store the original select statement, connection string etc.
+							dt.ExtendedProperties["select"]     = CommandText;
+							dt.ExtendedProperties["connect"]    = dbConnectInfo.GetConnectionString();
+							dt.ExtendedProperties["scriptName"] = dt.TableName;
+
+							// use the data adapter to fill the table
+							da.Fill(dt);
+
+							// add the table to the data-set;
+							this.Model.Tables.Add(dt);
+
+							// select the table
+							this.SelectedTable = dt;
+						}
+					}
+					OnPropertyChanged(nameof(Tables));
+				}
+			}
+		}
+
+
+		protected void ExecExportScriptFile(object param)
+		{
+			if (this.Model != null && this.Model.Tables.Count > 0)
+			{
+				// request a file-name;
+				var dlg = new Microsoft.Win32.SaveFileDialog();
+				dlg.Title  = "Export Script XML";
+				dlg.Filter = "Xml Files (*.xml)|*.xml";
+				var rs = dlg.ShowDialog();
+				if (rs.HasValue && rs.Value)
+				{
+					File.WriteAllText(dlg.FileName, CreateScriptFile());
+				}
+
+			}
+		}
+
+
+		protected void ExecImportScriptFile(object param)
+		{
+			var dlg = new Microsoft.Win32.OpenFileDialog();
+			dlg.Title = "Open Query XML";
+			dlg.Filter = "XML Files (*.xml)|*.xml";
+			var rs = dlg.ShowDialog();
+			if (rs.HasValue && rs.Value)
+			{
+				ExecuteScriptFile(File.ReadAllText(dlg.FileName));
+			}
+
+		}
+
+		/// <summary>
 		/// executes <see cref="CommandText"/> against <see cref="SelectedConnection"/> and stores the data-table in the data-set.
 		/// </summary>
 		/// <param name="param"></param>
@@ -1204,7 +1404,6 @@ namespace ScriptView
 
 	}
 
-
 	public class DbRelationViewModel : DialogViewModel<DbRelationship>
 	{
 
@@ -1294,8 +1493,6 @@ namespace ScriptView
 		}
 	}
 
-	
-
 	/// <summary>
 	/// provides some additional properties to the <see cref="DataTable"/> for display in a list-box
 	/// </summary>
@@ -1318,8 +1515,11 @@ namespace ScriptView
 		/// <summary>
 		/// gets/sets the name of the data-table
 		/// </summary>
-		public string Name  { get { return m_tbl.TableName; }
-							  set { m_tbl.TableName = value; } }
+		public string Name
+		{
+			get { return  m_tbl.TableName; }
+			set { m_tbl.TableName = value; }
+		}
 
 		/// <summary>
 		/// gets the number of rows
