@@ -20,6 +20,7 @@
                 <MenuItem Header="Export Query  XML" Command="{Binding ExportQueryXML}"></MenuItem>
                 <MenuItem Header="Import Query  XML" Command="{Binding ImportQueryXML}"></MenuItem>
                 <MenuItem Header="Exec Query List"   Command="{Binding LoadScript}" ToolTip="Execute a simple semi-colon seperated list of queries against the current connection"></MenuItem>
+                <MenuItem Header="Save Db Import File" Command="{Binding SaveAsDBImport}" ToolTip="Saves the contents of the selected table in a format compatible with Db IMport"/>
             </MenuItem>
             <MenuItem Header="View">
                 <MenuItem Header="Toggle SQL Server Query" Click="MenuItem_Click" StaysOpenOnClick="True"/>
@@ -162,7 +163,9 @@
                                     </ListBox.ContextMenu>
                                 </ListBox>
 
-                                <DataGrid Grid.Row="1" BorderThickness="0" Margin="5" Grid.Column="1" ItemsSource="{Binding SelectedTable}" SelectionUnit="CellOrRowHeader" ClipboardCopyMode="IncludeHeader"/>
+                                <DataGrid Grid.Row="1" BorderThickness="0" Margin="5" Grid.Column="1" ItemsSource="{Binding SelectedTable}" SelectionUnit="CellOrRowHeader" ClipboardCopyMode="IncludeHeader" AutoGeneratingColumn="DataGrid_AutoGeneratingColumn">
+                                    
+                                </DataGrid>
                                 <GridSplitter Grid.Column="0" Grid.RowSpan="2" Width="5" Background="LightGray"/>
 
                             </Grid>

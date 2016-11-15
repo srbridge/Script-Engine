@@ -59,11 +59,7 @@ namespace DataScriptEngine
 						// output the line:
 						txt.WriteLine(line);
 					}
-
-
 				}
-
-
 			}
 			finally
 			{
@@ -106,7 +102,7 @@ namespace DataScriptEngine
 				var scripter = new Scripter(server);
 
 				scripter.Options.ScriptSchema = true;
-				//scripter.Options.ScriptData = true;
+				scripter.Options.ScriptData = true;
 				scripter.Options.ScriptDrops = false;
 				scripter.Options.WithDependencies = true;
 				scripter.Options.Indexes = true;

@@ -20,7 +20,7 @@ namespace ScriptView
 	/// </summary>
 	public partial class MainWindow : Window
 	{
-		GridLength m_last_lpanel_width = new GridLength(100);
+		GridLength m_last_lpanel_width  = new GridLength(100);
 		GridLength m_last_qpanel_height = new GridLength(70);
 
 		public MainWindow()
@@ -71,6 +71,19 @@ namespace ScriptView
 		private void MenuItem_Click(object sender, RoutedEventArgs e)
 		{
 			ToggleLeftPanel(); ToggleQueryPanel();
+		}
+
+		private void DataGrid_AutoGeneratingColumn(object sender, DataGridAutoGeneratingColumnEventArgs e)
+		{
+			var vm = this.DataContext as DataSetViewModel;
+			if (vm != null)
+			{
+				if (vm.ColumnHasRelationshipAttached(e.PropertyName))
+				{
+					dynamic col = e.Column;
+					col.FontWeight = FontWeights.Bold;
+				}
+			}
 		}
 	}
 }

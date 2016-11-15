@@ -103,6 +103,7 @@
     </Compile>
     <Compile Include="SqlServerTreeViewModel.cs" />
     <Compile Include="SqlServerInfo.cs" />
+    <Compile Include="TextData.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MainWindow.xaml.cs" />

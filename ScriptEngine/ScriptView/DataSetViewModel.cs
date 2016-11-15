@@ -246,6 +246,17 @@ namespace ScriptView
 			}
 		}
 
+        /// <summary>
+        /// saves the contents of the selected data table in a format compatible with DbImport.
+        /// </summary>
+        public ICommand SaveAsDBImport
+        {
+            get
+            {
+                return new RelayCommand(() => SelectedTable != null, ExecutePrepareDbImportFile);
+            }
+        }
+
 		#endregion
 
 		#region Scripting Options Properties
@@ -332,6 +343,21 @@ namespace ScriptView
 
 		#endregion
 
+		public bool ColumnHasRelationshipAttached(string columnName)
+		{
+			if (this.SelectedTable.Columns.Contains(columnName))
+			{
+				var col = SelectedTable.Columns[columnName];
+				if (col != null)
+				{
+					return col.ExtendedProperties.ContainsKey("relationship");
+				}
+			}
+
+			return false;
+		}
+
+
 		/// <summary>
 		/// builds the context menu items for the selected data-set-table
 		/// </summary>
@@ -384,7 +410,12 @@ namespace ScriptView
 
 					// create a sub-menu to set relationship select statements
 					var txt = new TextBox() { Text = rel,  MinWidth = 50 };
-					var mnu = new MenuItem { Header = "Set Relationship Query" };
+					var mnu = new MenuItem { Header = "Relationship" };
+					if (rel != "")
+					{
+						mnu.FontWeight = FontWeights.Bold;
+						mnuCol.Background = Brushes.Green;
+					}
 					mnu.Tag = col;
 					mnu.StaysOpenOnClick = true;
 					var btn = new Button() { Content = "Relationship" };
@@ -394,14 +425,16 @@ namespace ScriptView
 						var vw = new DbRelationView();
 
 						// pass in the data-set;
+						vw.ViewModel.WindowTitle = $"Relationship for [{SelectedTable.TableName}].[{col.ColumnName}]";
 						vw.ViewModel.DataSet = this.Model;
 
+						// set the relationship (if already exists)
 						if (rel != null)
 						{
 							vw.ViewModel.Model = DbRelationship.Parse(rel);
 						}
 
-						// show 
+						// show as a dialog.
 						var rs = vw.ShowDialog();
 						if (rs.HasValue && rs.Value)
 						{
@@ -617,6 +650,12 @@ namespace ScriptView
 						{
 							tbl.TableName = SelectedTable.ExtendedProperties["scriptName"] as string;
 						}
+
+                        // set the database name
+                        if (SelectedTable.ExtendedProperties.ContainsKey("dbName"))
+                        {
+                            tbl.UseDatabaseName = SelectedTable.ExtendedProperties["dbName"] as string;
+                        }
 
 						// set the comment on the table; this will be added to the top of the script;
 						// does the table reference the original select statement?
@@ -1069,6 +1108,7 @@ namespace ScriptView
 							// store the original select statement;
 							dt.ExtendedProperties["select"]     = CommandText;
 							dt.ExtendedProperties["connect"]    = SelectedConnection.GetConnectionString();
+                            dt.ExtendedProperties["dbName"]     = SelectedConnection.DataBaseName;
 							dt.ExtendedProperties["scriptName"] = dt.TableName;
 
 							// use the data adapter to fill the table
@@ -1239,6 +1279,55 @@ namespace ScriptView
 			}
 
 		}
+
+        protected IEnumerable<string[]> ReadTableAsText(DataTable tbl)
+        {
+
+            yield return (from DataColumn c in tbl.Columns
+                         where !c.AutoIncrement
+                        select c.ColumnName).ToArray();
+
+            foreach (DataRow dr in tbl.Rows)
+            {
+                yield return (from DataColumn c in tbl.Columns
+                             where !c.AutoIncrement
+                            select GetField(dr,c)).ToArray();
+
+            }
+
+        }
+
+        private static string GetField(DataRow row, DataColumn column)
+        {
+            object value = row[column];
+            if (value == null)
+                return "";
+            if (value is DBNull)
+                return "";
+            return Convert.ToString(value);
+        }
+
+        protected void ExecutePrepareDbImportFile(object param)
+        {
+            var dlg = new Microsoft.Win32.SaveFileDialog();
+            dlg.Title = "Save Db Import File";
+            dlg.AddExtension = true;
+            dlg.FileName = SelectedTable.TableName;
+            dlg.DefaultExt = ".DAT";
+            dlg.Filter = "DAT Files (*.DAT)|*.DAT";
+
+            var rs = dlg.ShowDialog();
+            if (rs.HasValue && rs.Value)
+            {
+                using (var fs = File.OpenWrite(dlg.FileName))
+                {
+                    ReadTableAsText(SelectedTable).WriteAsText(fs, Encoding.UTF8, ",", "\r\n", "\"", "\"\"", true);
+                }
+            }
+
+
+        }
+
 
 		/// <summary>
 		/// lets you load an SQL script and executes it against the current connection.

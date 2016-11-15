@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:ScriptView"
         xmlns:mv="clr-namespace:Quick.MVVM"
         mc:Ignorable="d"
-        Title="Relationship" Width="320" ResizeMode="NoResize" SizeToContent="Height" Icon="Images/SQL_16x.png">
+        Title="{Binding WindowTitle}" Width="480" ResizeMode="NoResize" SizeToContent="Height" Icon="Images/SQL_16x.png">
     <Window.DataContext>
         <local:DbRelationViewModel EnableOK="True"/>
     </Window.DataContext>
@@ -32,12 +32,12 @@
         </StackPanel>
         <StackPanel>
             <mv:TwoColumnGrid>
-                <Label>Table Name</Label>
+                <Label>Foreign Table Name</Label>
                 <TextBox Text="{Binding TableName}"/>
-                <Label>Column Name</Label>
+                <Label>Foreign Column Name</Label>
                 <TextBox Text="{Binding ColumnName}"/>
                 <Label>Join</Label>
-                <TextBox Text="{Binding Join}" MinHeight="100"/>
+                <TextBox Text="{Binding Join}" MinHeight="100" TextWrapping="Wrap" AcceptsReturn="True"/>
             </mv:TwoColumnGrid>
         </StackPanel>
     </DockPanel>

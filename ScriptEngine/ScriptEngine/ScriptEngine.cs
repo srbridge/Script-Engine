@@ -65,6 +65,11 @@ namespace DataScriptEngine
 		/// </summary>
 		public TSQLCompatibilityLevel CompatibilityLevel { get; set; } = TSQLCompatibilityLevel.SQL_2005;
 
+        /// <summary>
+        /// database to "use" for the script
+        /// </summary>
+        public string UseDatabaseName { get; set; }
+
 		/// <summary>
 		/// the name of the table
 		/// </summary>
@@ -142,6 +147,12 @@ namespace DataScriptEngine
 					// insert the table comment:
 					writer.WriteLine($"/** {Comment} **/");
 				}
+
+                if (!String.IsNullOrEmpty(this.UseDatabaseName))
+                {
+                    // add the use statement
+                    writer.WriteLine($"USE [{this.UseDatabaseName}]");
+                }
 
 				if (useTransaction)
 				{
